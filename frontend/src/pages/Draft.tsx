@@ -53,6 +53,39 @@ export default function Draft({ code }: { code: string }) {
 
   const onClock = state.on_clock;
   const myPick = onClock?.team_id === myTeamId;
+  const complete = state.progress.complete;
+
+  // Once the board is full there is nothing to draft, so stop showing a player
+  // pool with dead buttons and point people at the season instead.
+  if (complete) {
+    return (
+      <>
+        <div className="clock">
+          <strong>Draft complete</strong>
+          <div className="small muted">
+            All {state.progress.total} picks are in. Rosters are set and week 1 lineups
+            have been filled in for you.
+          </div>
+          <div className="row" style={{ marginTop: '.75rem' }}>
+            <button className="primary" onClick={() => navigate(`/l/${code}/team`)}>
+              Set my lineup
+            </button>
+            <button onClick={() => navigate(`/l/${code}/standings`)}>Standings</button>
+          </div>
+        </div>
+        <div className="card tight">
+          <h3>Last picks</h3>
+          <ul className="small" style={{ paddingLeft: '1rem', margin: 0 }}>
+            {state.recent.map((p: any) => (
+              <li key={p.overall}>
+                R{p.round}.{p.pick_in_round} — {p.player_name} ({p.team_name})
+              </li>
+            ))}
+          </ul>
+        </div>
+      </>
+    );
+  }
 
   return (
     <>

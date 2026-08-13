@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { api, fmt, tokens } from '../lib/api';
 import { useApi } from '../lib/hooks';
 import { ErrorBanner, IlBadge, Loading, PlayerLink, PositionTags } from '../components/common';
@@ -7,21 +7,34 @@ export default function Team({ code, teamId }: { code: string; teamId?: string }
   const myTeamId = teamId ?? tokens.teamId(code);
   const { data: league } = useApi<any>(`/api/leagues/${code}`, code);
   const currentWeek = league?.timeline?.current_week ?? 1;
+  // `week` stays null until the manager picks one; the API answers an
+  // unqualified request with the first week that is still open for editing,
+  // so the page never opens on a locked week and never has to re-fetch.
   const [week, setWeek] = useState<number | null>(null);
-  const activeWeek = week ?? currentWeek;
 
   const { data, error, reload, setData } = useApi<any>(
-    myTeamId ? `/api/leagues/${code}/teams/${myTeamId}/lineup?week=${activeWeek}` : null,
+    myTeamId
+      ? `/api/leagues/${code}/teams/${myTeamId}/lineup${week ? `?week=${week}` : ''}`
+      : null,
     code,
-    [activeWeek],
+    [week],
   );
+  const activeWeek = week ?? data?.week ?? currentWeek;
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
 
+  // Re-sync the editable copy whenever the server's version changes. Status
+  // messages are cleared only when the *week* changes — a successful save
+  // replaces `data`, and clearing on every update would wipe the confirmation
+  // the manager just earned, making a save that worked look like nothing
+  // happened.
+  const shownWeek = useRef<number | null>(null);
   useEffect(() => {
-    if (data?.players) {
-      setDraft(Object.fromEntries(data.players.map((p: any) => [p.player_id, p.slot])));
+    if (!data?.players) return;
+    setDraft(Object.fromEntries(data.players.map((p: any) => [p.player_id, p.slot])));
+    if (shownWeek.current !== data.week) {
+      shownWeek.current = data.week;
       setMsg(null);
       setOk(null);
     }
@@ -80,11 +93,26 @@ export default function Team({ code, teamId }: { code: string; teamId?: string }
     }
   }
 
+  // Group into Active / Bench / IL, with active rows in the roster's own slot
+  // order rather than alphabetically — a lineup reads top-down like a lineup
+  // card, not like a directory.
+  const slotOrder = Object.keys(data.active_slots);
+  const slotRank = (slot: string) => {
+    if (slot === 'BENCH') return 1000;
+    if (slot === 'IL') return 2000;
+    const i = slotOrder.indexOf(slot);
+    return i === -1 ? 999 : i;
+  };
   const sorted = [...data.players].sort((a: any, b: any) => {
-    const rank = (s: string) => (s === 'BENCH' ? 1 : s === 'IL' ? 2 : 0);
-    return rank(draft[a.player_id] ?? a.slot) - rank(draft[b.player_id] ?? b.slot)
-      || a.name.localeCompare(b.name);
+    const sa = draft[a.player_id] ?? a.slot;
+    const sb = draft[b.player_id] ?? b.slot;
+    return slotRank(sa) - slotRank(sb) || a.name.localeCompare(b.name);
   });
+
+  const sectionFor = (slot: string) => (slot === 'BENCH' ? 'Bench' : slot === 'IL' ? 'Injured list' : 'Active');
+  const unfilled = slotOrder.flatMap((slot) =>
+    Array.from({ length: Math.max(0, data.active_slots[slot] - (counts[slot] ?? 0)) }, () => slot),
+  );
 
   return (
     <>
@@ -123,6 +151,13 @@ export default function Team({ code, teamId }: { code: string; teamId?: string }
           </span>
         </div>
 
+        {unfilled.length ? (
+          <div className="banner">
+            {unfilled.length} empty starting {unfilled.length === 1 ? 'slot' : 'slots'}:{' '}
+            {unfilled.join(', ')} — those spots score nothing this week.
+          </div>
+        ) : null}
+
         <div className="scroll-x">
           <table>
             <thead>
@@ -133,8 +168,18 @@ export default function Team({ code, teamId }: { code: string; teamId?: string }
               </tr>
             </thead>
             <tbody>
-              {sorted.map((p: any) => (
-                <tr key={p.player_id}>
+              {sorted.map((p: any, i: number) => {
+                const slot = draft[p.player_id] ?? p.slot;
+                const section = sectionFor(slot);
+                const prev = i === 0 ? null : sectionFor(draft[sorted[i - 1].player_id] ?? sorted[i - 1].slot);
+                return (
+                <Fragment key={p.player_id}>
+                {section !== prev ? (
+                  <tr>
+                    <th colSpan={3} style={{ paddingTop: i ? '1rem' : 0 }}>{section}</th>
+                  </tr>
+                ) : null}
+                <tr>
                   <td>
                     <select
                       value={draft[p.player_id] ?? p.slot}
@@ -158,7 +203,9 @@ export default function Team({ code, teamId }: { code: string; teamId?: string }
                     <span className="small muted">{p.games_to_date} g</span>
                   </td>
                 </tr>
-              ))}
+                </Fragment>
+                );
+              })}
             </tbody>
           </table>
         </div>

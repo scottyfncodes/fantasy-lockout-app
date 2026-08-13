@@ -72,6 +72,9 @@ class SeasonData:
     batting: list[dict[str, Any]] = field(default_factory=list)
     pitching: list[dict[str, Any]] = field(default_factory=list)
     il_stints: list[dict[str, Any]] = field(default_factory=list)
+    # What the event-level deriver filled in (holds, pickoffs), or why it could
+    # not run. Reported by the ingest CLI and stored in the coverage record.
+    derived: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------

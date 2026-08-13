@@ -33,11 +33,12 @@ _ALL_NATIVE_P = {s: ("native", "") for s in PITCHING_STATS}
 
 SOURCES: dict[str, dict[str, Any]] = {
     "retrosheet": {
-        "label": "Retrosheet event files via Chadwick (cwdaily)",
+        "label": "Retrosheet event files via Chadwick (cwdaily + cwevent)",
         "years": "1901-present (event files complete from ~1915; field caveats pre-1950)",
         "notes": (
             "Best source for this project: event-level data means daily player box "
-            "scores are exact, and the odd stats fall out of the play-by-play."
+            "scores are exact, and the odd stats fall out of the play-by-play. "
+            "Needs cwdaily for the box scores and cwevent for holds and pickoffs."
         ),
         "batting": {
             "R": ("native", "B_R"),
@@ -62,12 +63,16 @@ SOURCES: dict[str, dict[str, Any]] = {
             "ER": ("native", "P_ER"),
             "K": ("native", "P_SO"),
             "HLD": (
-                "partial",
-                "Not a cwdaily column. Derivable from event files by replaying game "
-                "state at entry/exit against the hold rule; not implemented in v1, "
-                "so HLD is 0 unless the deriver is enabled.",
+                "derived",
+                "Not a cwdaily column: a hold is a statement about game state. "
+                "pipeline/holds.py replays the cwevent stream and applies the "
+                "official rule (entered in a save situation, recorded an out, "
+                "left without losing the lead, not the winner or saver).",
             ),
-            "PICK": ("partial", "PO/POCS events exist in the event stream but are not a cwdaily column."),
+            "PICK": (
+                "derived",
+                "cwevent EVENT_CD 8, counted per pitcher by pipeline/holds.py.",
+            ),
             "NH": ("derived", "CG & 0 hits allowed & >= 27 outs"),
             "PG": ("derived", "no-hitter & no BB/HBP/ROE & BF == outs"),
             "QS": ("derived", ">= 18 outs and <= 3 ER in a start"),

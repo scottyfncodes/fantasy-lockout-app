@@ -128,3 +128,49 @@ def test_forced_assignment_is_honoured():
 def test_forcing_an_ineligible_slot_is_refused():
     with pytest.raises(ValueError):
         rosters.max_matching([player("a", "OF")], {"C": 1, "OF": 1}, forced={"a": "C"})
+
+
+# ---------------------------------------------------------------------------
+# lobby sizing
+# ---------------------------------------------------------------------------
+
+def test_lobby_shrinks_toward_the_minimum_rather_than_stuffing_bots():
+    from app.services.leagues import planned_size
+    cfg = LeagueConfig.load().merged({"team_count": 12, "min_teams": 8})
+    assert planned_size(cfg, 3) == 8, "three humans should not seat nine bots"
+    assert planned_size(cfg, 9) == 10, "sizes round up to keep the count even"
+    assert planned_size(cfg, 12) == 12
+    assert planned_size(cfg, 14) == 12, "never exceeds the commissioner's target"
+
+
+def test_final_size_is_written_back_to_the_league_config(conn, cfg):
+    """The schedule generator must build fixtures for teams that exist."""
+    import random
+    from app.scoring import ScoringConfig
+    from app.services import leagues, schedule as schedule_svc
+
+    big = LeagueConfig.load().merged({"team_count": 12, "min_teams": 8})
+    created = leagues.create_league(conn, "Shrinker", big, ScoringConfig.load())
+    row = leagues.require_league(conn, created["id"])
+    leagues.join(conn, row, "Only Human")
+    leagues.start_from_lobby(conn, row, rng=random.Random(1))
+
+    row = leagues.require_league(conn, created["id"])
+    stored = leagues.league_config(row)
+    team_ids = [t["id"] for t in leagues.teams(conn, row["id"])]
+    assert stored.team_count == len(team_ids) == 8
+    schedule_svc.validate(stored, team_ids)  # must not raise
+
+
+def test_bracket_shrinks_when_the_league_is_smaller_than_the_playoff_field(conn):
+    import random
+    from app.scoring import ScoringConfig
+    from app.services import leagues
+
+    tiny = LeagueConfig.load().merged({"team_count": 8, "min_teams": 4, "playoff_teams": 8})
+    created = leagues.create_league(conn, "Tiny", tiny, ScoringConfig.load())
+    row = leagues.require_league(conn, created["id"])
+    leagues.join(conn, row, "Solo")
+    leagues.start_from_lobby(conn, row, rng=random.Random(2))
+    stored = leagues.league_config(leagues.require_league(conn, created["id"]))
+    assert stored.team_count == 4 and stored.playoff_teams == 4

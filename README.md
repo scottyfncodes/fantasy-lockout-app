@@ -33,8 +33,19 @@ The Vite dev server proxies `/api` and `/ws` to the backend. For a single
 process in production, run `npm run build` and start uvicorn — FastAPI serves
 `frontend/dist` when it exists.
 
-Tests: `cd backend && python -m pytest` (≈2 min; it drafts and replays a full
-season).
+Tests: `cd backend && python -m pytest` (≈45s; it drafts and replays a full
+season). To see it with data in it:
+
+```bash
+python -m scripts.seed_demo --teams 10 --humans 3 --weeks 7   # prints a join code
+python -m scripts.ui_smoke --code <CODE> ...                  # every page in a real browser
+```
+
+`ui_smoke` walks all nine pages in headless Chromium and fails on any console
+error, uncaught exception or failed request — a typecheck proves the code
+compiles, not that a page renders. It needs `pip install playwright`; nothing
+else does, so it is not in `requirements.txt`. Pass `--mobile` for a phone
+viewport.
 
 ---
 
@@ -84,6 +95,9 @@ python -m app.pipeline.build --preflight
 python -m app.pipeline.build --coverage     # the full stat-by-stat matrix
 ```
 
+`cwdaily` produces the daily box scores; `cwevent` supplies the play-by-play
+that holds and pickoffs are derived from.
+
 **A synthetic season generator is the offline default** (`--source synthetic`).
 It produces a complete, internally consistent season from a seed — box scores
 built from simulated plate appearances, pitching lines allocated against the
@@ -104,15 +118,23 @@ authority and the app surfaces it on the rules page.
 | Cycle | derived from 1B/2B/3B/HR | derived |
 | Quality start | derived (≥18 outs, ≤3 ER) | derived |
 | No-hitter / perfect game | derived | derived |
-| Pickoff | in the event stream, not a `cwdaily` column | Statcast only, 2008+ |
-| **Hold** | **not available without deriving game state from event files — not implemented in v1** | **missing entirely from per-game logs** |
+| Pickoff | derived from `cwevent` (EVENT_CD 8) | Statcast only, 2008+ |
+| Hold | derived from `cwevent` — see below | missing entirely from per-game logs |
 
-Holds are the real gap. The schema stores an explicit `hld` column so a
-deriver can be added without a migration, but with either live source the
-HLD category scores 0 until one is written. The synthetic generator supplies
-holds, so the scoring path itself is exercised. **This is worth settling
-before a real league runs**: either write the event-file hold deriver, or drop
-HLD from the scoring config.
+**Holds** are not a column in any source, because a hold is a statement about
+the *game state* when a reliever entered and left, not a season total.
+`pipeline/holds.py` recovers them by replaying Chadwick's `cwevent`
+play-by-play stream and applying the official rule: entered in a save
+situation, recorded at least one out, left without surrendering the lead, and
+is neither the winning nor the saving pitcher. Pickoffs come from the same
+pass. `tests/test_holds.py` pins the rule down against hand-built event
+streams — including the cases that are easy to get wrong (mop-up duty with a
+nine-run lead, a blown lead forfeiting the hold, two relievers holding the
+same lead, and reading the pitching side correctly from `BAT_HOME_ID`).
+
+That leaves **no unsupported scoring category on the Retrosheet path**. If
+`cwevent` is missing the ingest still succeeds, but it says so loudly and those
+two categories score zero rather than failing silently.
 
 ### Season eligibility
 
@@ -213,9 +235,14 @@ an IBB scores BB (1) + IBB (1) = 2 — the literal reading of the rules. Set
 **"8:00 PM CST" is implemented as 20:00 `America/Chicago`**, which follows the
 local clock through daylight saving. That is what a league means by it.
 
+**The league shrinks to fit the lobby, and the config is rewritten to match.**
+If five managers show up to a 12-team league it starts at 8 — and the stored
+config is updated to say 8, because the schedule generator has to build
+fixtures for teams that exist. A smaller-than-8 league also shrinks its
+playoff bracket to the largest bye-free field it can fill.
+
 Still worth a decision before a real season:
 
-* the **hold** sourcing gap described above;
 * whether the roster totals should be 42 or 45;
 * whether to enable `freeze_adds_final_weeks`.
 
@@ -225,7 +252,6 @@ Still worth a decision before a real season:
 * **Manual bracket editing.** The bracket is generated from regular-season
   seeding and advances automatically; there is no override beyond editing
   `playoff_teams` before the playoffs start.
-* **A hold deriver** for Retrosheet event files (see above).
 * **Sim pace controls.** Fixed at one day per night, per the spec; the
   commissioner's `advance` endpoint exists for catching up, not for changing
   the cadence.
@@ -244,6 +270,7 @@ backend/
     pipeline/
       coverage.py                  what each source can actually supply
       retrosheet.py                event files → daily box scores (via Chadwick)
+      holds.py                     holds + pickoffs derived from the event stream
       prosportstransactions.py     IL stints, with name matching + gap checks
       synthetic.py                 deterministic offline season generator
       build.py                     ingest CLI + eligibility verdict
@@ -253,7 +280,10 @@ backend/
     api/routes.py                  REST
     api/live.py                    WebSockets: mini-game + draft room
     scheduler.py                   nightly 8pm CST job
-  tests/                           scoring, calendar, schedule, rosters,
+  scripts/
+    seed_demo.py                   build a league with real data in it
+    ui_smoke.py                    walk every page in a real browser
+  tests/                           scoring, holds, calendar, schedule, rosters,
                                    lineups/IL, waivers, replay, bot integrity, API
 frontend/
   src/pages/                       lobby, draft, team, waivers, standings,

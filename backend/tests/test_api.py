@@ -320,3 +320,28 @@ def test_a_countdown_can_be_cancelled(client):
         else:
             pytest.fail("cancel was not acknowledged")
     assert client.get(f"/api/leagues/{code}").json()["phase"] == "lobby"
+
+
+def test_lineup_defaults_to_a_week_you_can_still_edit(client, drafted):
+    """The current week locks as it starts; the editor must not open read-only."""
+    code, team = drafted["code"], drafted["team_id"]
+    current = client.get(f"/api/leagues/{code}").json()["timeline"]["current_week"]
+    assert client.get(f"/api/leagues/{code}/teams/{team}/lineup?week={current}").json()["locked"]
+
+    view = client.get(f"/api/leagues/{code}/teams/{team}/lineup").json()
+    assert view["week"] == current + 1 and not view["locked"]
+
+    # And that default is genuinely saveable.
+    res = client.put(
+        f"/api/leagues/{code}/teams/{team}/lineup", headers=hdr(drafted),
+        json={"week": view["week"],
+              "assignment": {p["player_id"]: p["slot"] for p in view["players"]}},
+    )
+    assert res.status_code == 200, res.text
+
+
+def test_an_explicit_week_is_always_honoured(client, drafted):
+    code, team = drafted["code"], drafted["team_id"]
+    current = client.get(f"/api/leagues/{code}").json()["timeline"]["current_week"]
+    view = client.get(f"/api/leagues/{code}/teams/{team}/lineup?week={current}").json()
+    assert view["week"] == current, "asking for a locked week must still show it"

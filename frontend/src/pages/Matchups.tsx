@@ -47,15 +47,18 @@ export default function Matchups({ code }: { code: string }) {
 
       <div className="grid two">
         {data.matchups.map((m: any) => {
-          const homeWon = m.complete && m.home_points >= m.away_points;
+          // Whoever is ahead reads bright, final or not — a live matchup is
+          // the thing managers check most, and it should be scannable.
+          const leader =
+            m.home_points === m.away_points ? null : m.home_points > m.away_points ? 'home' : 'away';
           return (
             <div className="card tight" key={m.slot}>
               <div className="row between">
-                <strong className={m.complete && homeWon ? '' : 'muted'}>{m.home_name}</strong>
+                <strong className={leader === 'away' ? 'muted' : ''}>{m.home_name}</strong>
                 <span className="mono">{fmt.points(m.home_points)}</span>
               </div>
               <div className="row between">
-                <strong className={m.complete && !homeWon ? '' : 'muted'}>{m.away_name}</strong>
+                <strong className={leader === 'home' ? 'muted' : ''}>{m.away_name}</strong>
                 <span className="mono">{fmt.points(m.away_points)}</span>
               </div>
               <div className="row" style={{ marginTop: '.35rem' }}>

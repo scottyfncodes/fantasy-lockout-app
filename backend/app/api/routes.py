@@ -236,7 +236,14 @@ def get_lineup(
 ) -> dict[str, Any]:
     if not league["season_year"]:
         raise HTTPException(400, "the season has not started")
-    target = week or max(1, league["current_week"] or 1)
+    current = max(1, league["current_week"] or 1)
+    target = week or current
+    if week is None and current < cfg.total_weeks and \
+            lineups_svc.is_locked(conn, league["id"], team_id, current):
+        # The current week locks the moment it starts, so defaulting to it would
+        # open a read-only page on the one screen whose purpose is editing.
+        # Without an explicit week, answer with the first one still open.
+        target = current + 1
     try:
         return lineups_svc.view(conn, league, cfg, team_id, target)
     except LookupError as exc:

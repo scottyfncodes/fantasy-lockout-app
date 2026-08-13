@@ -223,6 +223,30 @@ def set_phase(conn: sqlite3.Connection, league_id: str, phase: str) -> None:
     conn.execute("UPDATE leagues SET phase = ? WHERE id = ?", (phase, league_id))
 
 
+def commit_final_size(conn: sqlite3.Connection, league: dict[str, Any]) -> LeagueConfig:
+    """Write the league's *actual* size into its config once the lobby closes.
+
+    The target team count is an intention; the final size is what the lobby
+    produced. Leaving the intention in place would leave the schedule generator
+    building fixtures for teams that do not exist.
+    """
+    cfg = league_config(league)
+    actual = len(teams(conn, league["id"]))
+    overrides: dict[str, Any] = {"team_count": actual}
+    if cfg.playoff_teams > actual:
+        # Shrink the bracket to the largest bye-free field the league can fill.
+        field = 1
+        while field * 2 <= actual:
+            field *= 2
+        overrides["playoff_teams"] = field
+    cfg = cfg.merged(overrides)
+    conn.execute(
+        "UPDATE leagues SET config_json = ? WHERE id = ?",
+        (json.dumps(cfg.to_dict()), league["id"]),
+    )
+    return cfg
+
+
 def start_from_lobby(
     conn: sqlite3.Connection, league: dict[str, Any], rng: random.Random | None = None
 ) -> dict[str, Any]:
@@ -232,11 +256,12 @@ def start_from_lobby(
     roster = teams(conn, league["id"])
     if not [t for t in roster if not t["is_bot"]]:
         raise LeagueError("at least one manager must join before starting")
-    bots = fill_bots(conn, league)
+    added = fill_bots(conn, league)
+    cfg = commit_final_size(conn, league)
     year = draw_season(conn, league, rng)
     set_phase(conn, league["id"], "year_reveal")
-    return {"bots_added": bots, "season_year": year,
-            "team_count": len(teams(conn, league["id"]))}
+    return {"bots_added": added, "season_year": year,
+            "team_count": cfg.team_count, "playoff_teams": cfg.playoff_teams}
 
 
 def log(conn: sqlite3.Connection, league_id: str, week: int, kind: str,
