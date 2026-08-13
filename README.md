@@ -95,9 +95,6 @@ python -m app.pipeline.build --preflight
 python -m app.pipeline.build --coverage     # the full stat-by-stat matrix
 ```
 
-`cwdaily` produces the daily box scores; `cwevent` supplies the play-by-play
-that holds and pickoffs are derived from.
-
 **A synthetic season generator is the offline default** (`--source synthetic`).
 It produces a complete, internally consistent season from a seed — box scores
 built from simulated plate appearances, pitching lines allocated against the
@@ -117,24 +114,17 @@ authority and the app surfaces it on the rules page.
 | Grand slam | native (`B_HR4`) | Statcast only, 2008+ |
 | Cycle | derived from 1B/2B/3B/HR | derived |
 | Quality start | derived (≥18 outs, ≤3 ER) | derived |
-| No-hitter / perfect game | derived | derived |
-| Pickoff | derived from `cwevent` (EVENT_CD 8) | Statcast only, 2008+ |
-| Hold | derived from `cwevent` — see below | missing entirely from per-game logs |
 
-**Holds** are not a column in any source, because a hold is a statement about
-the *game state* when a reliever entered and left, not a season total.
-`pipeline/holds.py` recovers them by replaying Chadwick's `cwevent`
-play-by-play stream and applying the official rule: entered in a save
-situation, recorded at least one out, left without surrendering the lead, and
-is neither the winning nor the saving pitcher. Pickoffs come from the same
-pass. `tests/test_holds.py` pins the rule down against hand-built event
-streams — including the cases that are easy to get wrong (mop-up duty with a
-nine-run lead, a blown lead forfeiting the hold, two relievers holding the
-same lead, and reading the pitching side correctly from `BAT_HOME_ID`).
+Every scoring category is supported on the Retrosheet path. Only the grand-slam
+bonus is a gap on the pybaseball path, and only before 2008.
 
-That leaves **no unsupported scoring category on the Retrosheet path**. If
-`cwevent` is missing the ingest still succeeds, but it says so loudly and those
-two categories score zero rather than failing silently.
+The categories that made this hard — **holds, pickoffs, no-hitters and perfect
+games** — were removed from the scoring rules. Holds and pickoffs are not
+columns in any source (a hold is a statement about game state, not a season
+total), and both would have needed a play-by-play deriver. They are gone from
+`scoring.json`, from the schema, and from the pipeline. A hitless complete game
+still scores well through IP, K, CG, W and QS — it just gets no separate
+bonus.
 
 ### Season eligibility
 
@@ -241,6 +231,11 @@ config is updated to say 8, because the schedule generator has to build
 fixtures for teams that exist. A smaller-than-8 league also shrinks its
 playoff bracket to the largest bye-free field it can fill.
 
+**Holds, pickoffs, no-hitters and perfect games were dropped** from the
+scoring rules after the fact, so the schema no longer carries `hld`, `pick` or
+`errors_allowed` and the pipeline no longer derives them. Re-adding any of them
+means restoring the column, the generator field and the scoring entry together.
+
 Still worth a decision before a real season:
 
 * whether the roster totals should be 42 or 45;
@@ -263,14 +258,13 @@ Still worth a decision before a real season:
 ```
 backend/
   app/
-    scoring.py / scoring.json      point values + derived events (cycle, QS, NH, PG)
+    scoring.py / scoring.json      point values + derived events (cycle, slam, QS)
     config.py  / league_config.json  every league knob
     season_calendar.py             fantasy weeks ↔ real dates, All-Star skip
     schema.sql, db.py              SQLite cache + live league state
     pipeline/
       coverage.py                  what each source can actually supply
       retrosheet.py                event files → daily box scores (via Chadwick)
-      holds.py                     holds + pickoffs derived from the event stream
       prosportstransactions.py     IL stints, with name matching + gap checks
       synthetic.py                 deterministic offline season generator
       build.py                     ingest CLI + eligibility verdict
@@ -283,7 +277,7 @@ backend/
   scripts/
     seed_demo.py                   build a league with real data in it
     ui_smoke.py                    walk every page in a real browser
-  tests/                           scoring, holds, calendar, schedule, rosters,
+  tests/                           scoring, calendar, schedule, rosters,
                                    lineups/IL, waivers, replay, bot integrity, API
 frontend/
   src/pages/                       lobby, draft, team, waivers, standings,

@@ -86,7 +86,7 @@ def simulate_date(
         inserts.append((league["id"], week_obj.week, iso, r["team_id"], r["player_id"],
                         r["slot"], line.points, json.dumps(line.breakdown)))
         total += line.points
-        for bonus in ("CYC", "SLAM", "NH", "PG"):
+        for bonus in ("CYC", "SLAM"):
             if bonus in line.breakdown:
                 highlights.append({"player_id": r["player_id"], "team_id": r["team_id"],
                                    "bonus": bonus, "points": line.breakdown[bonus]})
@@ -307,8 +307,7 @@ def week_recap(
         (league["season_year"], league["id"], week),
     ):
         breakdown = json.loads(r["breakdown_json"])
-        for key, label in (("CYC", "hit for the cycle"), ("SLAM", "grand slam"),
-                           ("NH", "no-hitter"), ("PG", "perfect game")):
+        for key, label in (("CYC", "hit for the cycle"), ("SLAM", "grand slam")):
             if key in breakdown:
                 bonuses.append({"team": names.get(r["team_id"]), "player": r["name"],
                                 "date": r["date"], "bonus": key, "label": label,

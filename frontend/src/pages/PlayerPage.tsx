@@ -45,12 +45,12 @@ export default function PlayerPage({ code, playerId }: { code: string; playerId:
             <div className="scroll-x">
               <table>
                 <thead>
-                  <tr><th>G</th><th>GS</th><th>IP</th><th>W</th><th>SV</th><th>HLD</th><th>ER</th><th>K</th></tr>
+                  <tr><th>G</th><th>GS</th><th>IP</th><th>W</th><th>SV</th><th>CG</th><th>ER</th><th>K</th></tr>
                 </thead>
                 <tbody>
                   <tr className="mono">
                     <td>{pit.g}</td><td>{pit.gs}</td><td>{(pit.outs / 3).toFixed(1)}</td>
-                    <td>{pit.w}</td><td>{pit.sv}</td><td>{pit.hld}</td><td>{pit.er}</td><td>{pit.so}</td>
+                    <td>{pit.w}</td><td>{pit.sv}</td><td>{pit.cg}</td><td>{pit.er}</td><td>{pit.so}</td>
                   </tr>
                 </tbody>
               </table>

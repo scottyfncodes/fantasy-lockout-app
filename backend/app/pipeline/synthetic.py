@@ -10,8 +10,8 @@ developed, tested and demoed with no network at all.
 plate appearances, team runs are derived from those events, and the pitching
 lines are allocated against the *opposing* team's actual hits and runs.  A
 game's two halves therefore agree with each other, which is what the replay
-engine and the scoring tests need.  Rare events (cycles, grand slams,
-no-hitters, perfect games) occur at roughly their real rates.
+engine and the scoring tests need.  Rare events (cycles, grand slams, and the
+occasional hitless complete game) occur at roughly their real rates.
 """
 
 from __future__ import annotations
@@ -72,9 +72,6 @@ class SeasonData:
     batting: list[dict[str, Any]] = field(default_factory=list)
     pitching: list[dict[str, Any]] = field(default_factory=list)
     il_stints: list[dict[str, Any]] = field(default_factory=list)
-    # What the event-level deriver filled in (holds, pickoffs), or why it could
-    # not run. Reported by the ingest CLI and stored in the coverage record.
-    derived: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -387,18 +384,13 @@ def _pitching_side(
             "ibb": 1 if bb and rng.random() < 0.04 else 0,
             "hbp": opp_hbp if idx == 0 else 0,
             "so": so, "hr": hr,
-            "w": 0, "l": 0, "sv": 0, "hld": 0,
+            "w": 0, "l": 0, "sv": 0,
             "cg": 1 if outs >= 27 and idx == 0 else 0,
-            "pick": 1 if rng.random() < 0.015 else 0,
-            "errors_allowed": 0 if gem else (1 if rng.random() < 0.12 else 0),
         }
         if gem and idx == 0:
-            # A no-hitter can still allow an unearned run (walk, error, wild
-            # pitch), so the run total is left alone — only the hits go to zero.
-            line.update(h=0, hr=0, er=0, cg=1,
-                        bf=27 + bb + line["hbp"] + line["errors_allowed"])
-            if rng.random() < 0.15:  # perfect game: nobody reaches, nobody scores
-                line.update(bb=0, hbp=0, ibb=0, errors_allowed=0, bf=27, r=0)
+            # A gem still allows the odd unearned run (walk, error, wild pitch),
+            # so the run total is left alone — only the hits go to zero.
+            line.update(h=0, hr=0, er=0, cg=1, bf=27 + bb + line["hbp"])
         lines.append(line)
 
     # Decisions. Approximate the real rules closely enough to be recognisable.
@@ -413,9 +405,6 @@ def _pitching_side(
             final = lines[-1]
             if not final["w"] and final["outs"] >= 3:
                 final["sv"] = 1
-            for mid in lines[1:-1]:
-                if not mid["w"] and mid["r"] < margin and rng.random() < 0.65:
-                    mid["hld"] = 1
     else:
         loser = max(lines, key=lambda l: (l["er"], l["outs"]))
         loser["l"] = 1

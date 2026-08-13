@@ -8,10 +8,10 @@ The engine takes *raw* box-score lines (the same shape the data pipeline
 writes into SQLite) and returns a point total plus an itemised breakdown, so
 the weekly recap can show exactly where a player's points came from.
 
-Derived events (cycle, grand slam, quality start, no-hitter, perfect game) are
-computed here rather than stored, because no upstream data source exposes them
-as first-class box-score columns.  See ``pipeline/coverage.py`` for which stats
-each source can and cannot supply.
+Derived events (cycle, grand slam, quality start) are computed here rather than
+stored, because no upstream data source exposes them as first-class box-score
+columns.  See ``pipeline/coverage.py`` for which stats each source can and
+cannot supply.
 """
 
 from __future__ import annotations
@@ -100,22 +100,6 @@ def is_quality_start(line: Mapping[str, Any], cfg: ScoringConfig) -> bool:
     return _get(line, "outs") >= min_outs and _get(line, "er") <= max_er
 
 
-def is_no_hitter(line: Mapping[str, Any]) -> bool:
-    """A complete individual no-hitter (9+ innings, no hits allowed).
-
-    Combined no-hitters deliberately do not qualify: the bonus goes to a
-    pitcher who finished what he started.
-    """
-    return bool(_get(line, "cg")) and _get(line, "h") == 0 and _get(line, "outs") >= 27
-
-
-def is_perfect_game(line: Mapping[str, Any]) -> bool:
-    if not is_no_hitter(line):
-        return False
-    baserunners = _get(line, "bb") + _get(line, "hbp") + _get(line, "errors_allowed")
-    return baserunners == 0 and _get(line, "bf") == _get(line, "outs")
-
-
 # --------------------------------------------------------------------------
 # scoring
 # --------------------------------------------------------------------------
@@ -164,8 +148,8 @@ def score_pitching(
 ) -> ScoreLine:
     """Score one pitching line.
 
-    ``include_derived=False`` skips quality start / no-hitter / perfect game,
-    which are per-game events and meaningless on a summed line.
+    ``include_derived=False`` skips the quality start, which is a per-game
+    event and meaningless on a summed line.
     """
     p = cfg.pitching
     outs = _get(line, "outs")
@@ -178,18 +162,9 @@ def score_pitching(
         "SV": _get(line, "sv") * p.get("SV", 0),
         "ER": _get(line, "er") * p.get("ER", 0),
         "K": _get(line, "so") * p.get("K", 0),
-        "HLD": _get(line, "hld") * p.get("HLD", 0),
-        "PICK": _get(line, "pick") * p.get("PICK", 0),
     }
-    if include_derived:
-        if is_quality_start(line, cfg):
-            items["QS"] = p.get("QS", 0)
-        if is_perfect_game(line):
-            # A perfect game is also a no-hitter; both bonuses apply.
-            items["NH"] = p.get("NH", 0)
-            items["PG"] = p.get("PG", 0)
-        elif is_no_hitter(line):
-            items["NH"] = p.get("NH", 0)
+    if include_derived and is_quality_start(line, cfg):
+        items["QS"] = p.get("QS", 0)
 
     items = {k: round(v, 4) for k, v in items.items() if v}
     return ScoreLine(round(sum(items.values()), 4), items)

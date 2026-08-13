@@ -48,6 +48,10 @@ def main(argv: list[str] | None = None) -> int:
 
     leagues.start_from_lobby(conn, league, rng=rng)
     league = leagues.require_league(conn, created["id"])
+    # Closing the lobby can shrink the league to fit the humans who showed up,
+    # and it rewrites the stored config to match — so re-read it rather than
+    # carrying the pre-lobby target around.
+    cfg = leagues.league_config(league)
 
     minigame.randomized_order(conn, league["id"], rng=rng)
     draft.initialize(conn, league)

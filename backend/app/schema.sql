@@ -99,10 +99,7 @@ CREATE TABLE IF NOT EXISTS pitching_lines (
     w    INTEGER NOT NULL DEFAULT 0,
     l    INTEGER NOT NULL DEFAULT 0,
     sv   INTEGER NOT NULL DEFAULT 0,
-    hld  INTEGER NOT NULL DEFAULT 0,   -- not in standard box scores
     cg   INTEGER NOT NULL DEFAULT 0,
-    pick INTEGER NOT NULL DEFAULT 0,   -- pickoffs; event-level data only
-    errors_allowed INTEGER NOT NULL DEFAULT 0, -- reached-on-error, for perfect games
     PRIMARY KEY (game_id, player_id)
 );
 CREATE INDEX IF NOT EXISTS idx_pit_player ON pitching_lines(season, player_id, date);

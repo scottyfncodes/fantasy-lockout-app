@@ -154,7 +154,7 @@ def test_recap_reports_bonuses_and_top_performers(conn, league, cfg):
     recap = replay.week_recap(conn, row, cfg, 1)
     assert recap["matchups"] and recap["top_performers"]
     assert all("points" in p for p in recap["top_performers"])
-    assert all(b["bonus"] in {"CYC", "SLAM", "NH", "PG"} for b in recap["bonuses"])
+    assert all(b["bonus"] in {"CYC", "SLAM"} for b in recap["bonuses"])
 
 
 def test_snake_draft_order_reverses_every_round():

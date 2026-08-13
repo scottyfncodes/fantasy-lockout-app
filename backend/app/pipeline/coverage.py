@@ -22,7 +22,7 @@ from __future__ import annotations
 from typing import Any
 
 BATTING_STATS = ["R", "1B", "2B", "3B", "HR", "RBI", "SB", "BB", "IBB", "HBP", "K", "CYC", "SLAM"]
-PITCHING_STATS = ["IP", "W", "CG", "SV", "ER", "K", "HLD", "PICK", "NH", "PG", "QS"]
+PITCHING_STATS = ["IP", "W", "CG", "SV", "ER", "K", "QS"]
 
 _ALL_NATIVE_B = {s: ("native", "") for s in BATTING_STATS}
 _ALL_NATIVE_P = {s: ("native", "") for s in PITCHING_STATS}
@@ -33,12 +33,11 @@ _ALL_NATIVE_P = {s: ("native", "") for s in PITCHING_STATS}
 
 SOURCES: dict[str, dict[str, Any]] = {
     "retrosheet": {
-        "label": "Retrosheet event files via Chadwick (cwdaily + cwevent)",
+        "label": "Retrosheet event files via Chadwick (cwdaily)",
         "years": "1901-present (event files complete from ~1915; field caveats pre-1950)",
         "notes": (
             "Best source for this project: event-level data means daily player box "
-            "scores are exact, and the odd stats fall out of the play-by-play. "
-            "Needs cwdaily for the box scores and cwevent for holds and pickoffs."
+            "scores are exact, and the odd stats fall out of the play-by-play."
         ),
         "batting": {
             "R": ("native", "B_R"),
@@ -62,19 +61,6 @@ SOURCES: dict[str, dict[str, Any]] = {
             "SV": ("native", "P_SV"),
             "ER": ("native", "P_ER"),
             "K": ("native", "P_SO"),
-            "HLD": (
-                "derived",
-                "Not a cwdaily column: a hold is a statement about game state. "
-                "pipeline/holds.py replays the cwevent stream and applies the "
-                "official rule (entered in a save situation, recorded an out, "
-                "left without losing the lead, not the winner or saver).",
-            ),
-            "PICK": (
-                "derived",
-                "cwevent EVENT_CD 8, counted per pitcher by pipeline/holds.py.",
-            ),
-            "NH": ("derived", "CG & 0 hits allowed & >= 27 outs"),
-            "PG": ("derived", "no-hitter & no BB/HBP/ROE & BF == outs"),
             "QS": ("derived", ">= 18 outs and <= 3 ER in a start"),
         },
     },
@@ -96,10 +82,6 @@ SOURCES: dict[str, dict[str, Any]] = {
         "pitching": {
             **_ALL_NATIVE_P,
             "IP": ("native", "convert 5.2-style notation to outs"),
-            "HLD": ("missing", "Not in BR pitching game logs; FanGraphs has season totals only, not per-game."),
-            "PICK": ("partial", "Statcast pickoff events (2008+) only."),
-            "NH": ("derived", ""),
-            "PG": ("derived", ""),
             "QS": ("derived", ""),
         },
     },
@@ -128,9 +110,9 @@ SOURCES: dict[str, dict[str, Any]] = {
 }
 
 # Stats no traditional box score carries. The spec asked for these to be flagged
-# before the schema was locked; they are why the schema stores `slam`, `hld`,
-# `pick` and `errors_allowed` as explicit columns rather than inferring them.
-NON_STANDARD_STATS = ["IBB", "SLAM", "CYC", "HLD", "PICK", "NH", "PG", "QS"]
+# before the schema was locked; SLAM is why the schema stores an explicit `slam`
+# column rather than inferring grand slams from HR + RBI.
+NON_STANDARD_STATS = ["IBB", "SLAM", "CYC", "QS"]
 
 
 def _iter_stats(spec: dict[str, Any]):

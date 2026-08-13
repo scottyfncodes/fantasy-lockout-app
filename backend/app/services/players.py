@@ -36,8 +36,7 @@ PIT_SUM = """
     SELECT player_id,
            COUNT(*) AS g, SUM(gs) gs, SUM(outs) outs, SUM(bf) bf, SUM(h) h,
            SUM(r) r, SUM(er) er, SUM(bb) bb, SUM(ibb) ibb, SUM(hbp) hbp,
-           SUM(so) so, SUM(hr) hr, SUM(w) w, SUM(l) l, SUM(sv) sv,
-           SUM(hld) hld, SUM(cg) cg, SUM(pick) pick
+           SUM(so) so, SUM(hr) hr, SUM(w) w, SUM(l) l, SUM(sv) sv, SUM(cg) cg
       FROM pitching_lines WHERE season = ? {date_clause}
      GROUP BY player_id
 """
@@ -105,9 +104,9 @@ def _score_totals(
 ) -> dict[str, dict[str, Any]]:
     """Fantasy points per player over a date window.
 
-    Per-game bonuses (cycle, no-hitter, perfect game, quality start) cannot be
-    read off a summed line, so they are counted from the daily rows and added
-    back on top of the summed rate stats.
+    Per-game bonuses (cycle, grand slam, quality start) cannot be read off a
+    summed line, so they are counted from the daily rows and added back on top
+    of the summed rate stats.
     """
     bat, pit = _fetch_sums(conn, season, through, since)
     bonuses = _count_bonuses(conn, season, cfg, through, since)
@@ -147,7 +146,7 @@ def _count_bonuses(
     conn: sqlite3.Connection, season: int, cfg: ScoringConfig, through: str | None,
     since: str | None = None,
 ) -> dict[str, dict[str, float]]:
-    from ..scoring import is_cycle, is_no_hitter, is_perfect_game, is_quality_start
+    from ..scoring import is_cycle, is_quality_start
 
     clause, params = "", [season]
     if since:
@@ -178,19 +177,13 @@ def _count_bonuses(
             add(r["player_id"], "CYC", cyc_pts)
 
     rows = conn.execute(
-        f"SELECT player_id, gs, outs, er, cg, h, bb, hbp, bf, errors_allowed "
-        f"FROM pitching_lines WHERE season = ? {clause} AND (gs > 0 OR cg > 0)",
+        f"SELECT player_id, gs, outs, er FROM pitching_lines "
+        f"WHERE season = ? {clause} AND gs > 0",
         params,
     )
     for r in rows:
-        line = dict(r)
-        if is_quality_start(line, cfg):
+        if is_quality_start(dict(r), cfg):
             add(r["player_id"], "QS", cfg.pitching.get("QS", 0))
-        if is_perfect_game(line):
-            add(r["player_id"], "NH", cfg.pitching.get("NH", 0))
-            add(r["player_id"], "PG", cfg.pitching.get("PG", 0))
-        elif is_no_hitter(line):
-            add(r["player_id"], "NH", cfg.pitching.get("NH", 0))
     return out
 
 

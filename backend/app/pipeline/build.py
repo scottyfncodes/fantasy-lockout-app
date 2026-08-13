@@ -32,8 +32,7 @@ BATTING_COLS = ["game_id", "player_id", "season", "date", "team", "pa", "ab", "r
                 "b1", "b2", "b3", "hr", "rbi", "bb", "ibb", "hbp", "so", "sb", "cs",
                 "slam", "pos"]
 PITCHING_COLS = ["game_id", "player_id", "season", "date", "team", "gs", "outs", "bf",
-                 "h", "r", "er", "bb", "ibb", "hbp", "so", "hr", "w", "l", "sv", "hld",
-                 "cg", "pick", "errors_allowed"]
+                 "h", "r", "er", "bb", "ibb", "hbp", "so", "hr", "w", "l", "sv", "cg"]
 
 
 def store(conn: sqlite3.Connection, data: SeasonData, eligibility: dict[str, Any],
@@ -135,8 +134,6 @@ def build_season(year: int, source: str, cfg: LeagueConfig, seed: int | None = N
     cov = coverage.report(data.source)
     if il_report:
         cov["il_report"] = il_report
-    if data.derived:
-        cov["derived"] = data.derived
     return data, eligibility, cov
 
 
@@ -183,13 +180,6 @@ def main(argv: list[str] | None = None) -> int:
             flag = "eligible" if eligibility["eligible"] else f"EXCLUDED ({eligibility['reason']})"
             print(f"[{year}] {eligibility['players']} players, {eligibility['games']} games, "
                   f"{eligibility['il_stints']} IL stints — {flag}")
-            derived = cov.get("derived")
-            if derived:
-                if derived.get("source"):
-                    print(f"[{year}] derived from events: {derived['holds']} holds, "
-                          f"{derived['pickoffs']} pickoffs across {derived['games']} games")
-                else:
-                    print(f"[{year}] WARNING holds/pickoffs not derived: {derived.get('error')}")
             if cov.get("needs_attention"):
                 print(f"[{year}] stats needing attention: {', '.join(cov['needs_attention'])}")
     return 0

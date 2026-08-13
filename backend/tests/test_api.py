@@ -51,7 +51,8 @@ def test_health_and_meta(client):
     assert client.get("/api/health").json()["ok"]
     coverage = client.get("/api/meta/coverage").json()
     assert "retrosheet" in coverage["sources"]
-    assert "HLD" in " ".join(coverage["non_standard_stats"])
+    assert "SLAM" in coverage["non_standard_stats"]
+    assert not any(c in coverage["non_standard_stats"] for c in ("HLD", "PICK", "NH", "PG"))
     seasons = client.get("/api/meta/seasons").json()["seasons"]
     assert seasons and seasons[0]["eligible"] == 1
 

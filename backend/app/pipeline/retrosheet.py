@@ -9,13 +9,8 @@ row per player per game with every counting stat we need — including B_HR4
 Requirements
 ------------
 * outbound HTTPS to ``retrosheet.org``
-* the Chadwick binaries (``cwdaily`` and ``cwevent``) on PATH —
-  ``brew install chadwick`` or build from
-  https://github.com/chadwickbureau/chadwick
-
-Holds and pickoffs are not cwdaily columns; they are recovered from the
-``cwevent`` play-by-play stream by ``holds.py``, which is the only way to get
-either from any source.
+* the Chadwick binaries (``cwdaily``) on PATH — ``brew install chadwick`` or
+  build from https://github.com/chadwickbureau/chadwick
 
 Both requirements are checked up front and reported clearly, because in a
 sandboxed or offline environment neither is guaranteed.  See ``synthetic.py``
@@ -38,7 +33,6 @@ import zipfile
 from pathlib import Path
 from typing import Any, Iterable
 
-from . import holds
 from .synthetic import SeasonData
 
 EVENT_URL = "https://www.retrosheet.org/events/{year}eve.zip"
@@ -57,20 +51,15 @@ class SourceUnavailable(RuntimeError):
 def preflight() -> dict[str, Any]:
     """Check everything this pipeline needs before doing any work."""
     have_cwdaily = shutil.which("cwdaily") is not None
-    have_cwevent = shutil.which("cwevent") is not None
     net_ok, net_detail = _check_network()
     return {
         "cwdaily": have_cwdaily,
-        # cwevent is not required for the box scores, only for holds and
-        # pickoffs, so its absence degrades two categories rather than blocking.
-        "cwevent": have_cwevent,
         "network": net_ok,
         "network_detail": net_detail,
         "ready": have_cwdaily and net_ok,
         "hint": (
-            "install Chadwick (cwdaily for box scores, cwevent for holds and "
-            "pickoffs) and allow outbound HTTPS to retrosheet.org, or run the "
-            "pipeline with --source synthetic"
+            "install Chadwick (cwdaily) and allow outbound HTTPS to "
+            "retrosheet.org, or run the pipeline with --source synthetic"
         ),
     }
 
@@ -110,30 +99,6 @@ def run_cwdaily(year: int, event_dir: Path) -> list[dict[str, str]]:
     )
     if proc.returncode != 0:
         raise SourceUnavailable(f"cwdaily failed: {proc.stderr.strip()[:400]}")
-    return list(csv.DictReader(io.StringIO(proc.stdout)))
-
-
-def run_cwevent(year: int, event_dir: Path) -> list[dict[str, str]]:
-    """Run cwevent for the play-by-play rows the hold/pickoff deriver needs.
-
-    `cwdaily` has no hold or pickoff column — both are statements about game
-    state, not season totals — so the event stream is the only way to get them.
-    See ``holds.py`` for the rule.
-    """
-    if shutil.which("cwevent") is None:
-        raise SourceUnavailable("cwevent not found on PATH (install the Chadwick tool suite)")
-    files = sorted(p.name for p in event_dir.glob(f"{year}*.EV*"))
-    if not files:
-        raise SourceUnavailable(f"no {year} event files found in {event_dir}")
-    proc = subprocess.run(
-        # -f selects the fields holds.py reads: ids, inning, batting side,
-        # both scores, outs on the play, the event code and the base runners.
-        ["cwevent", "-q", "-y", str(year), "-n",
-         "-f", "0,2,3,4,8,9,10,11,12,13,34,35,36", *files],
-        cwd=event_dir, capture_output=True, text=True, check=False,
-    )
-    if proc.returncode != 0:
-        raise SourceUnavailable(f"cwevent failed: {proc.stderr.strip()[:400]}")
     return list(csv.DictReader(io.StringIO(proc.stdout)))
 
 
@@ -177,10 +142,6 @@ def map_pitching(row: dict[str, str]) -> dict[str, Any]:
         "so": _int(row, "P_SO"), "hr": _int(row, "P_HR"),
         "w": _int(row, "P_W"), "l": _int(row, "P_L"), "sv": _int(row, "P_SV"),
         "cg": _int(row, "P_CG"),
-        # Neither is a cwdaily column; holds.py fills both in from cwevent.
-        "hld": 0,
-        "pick": 0,
-        "errors_allowed": 0,
     }
 
 
@@ -201,18 +162,7 @@ def build(year: int, cache_dir: Path | None = None) -> SeasonData:
     work = Path(cache_dir or tempfile.mkdtemp(prefix=f"retro{year}"))
     download_events(year, work)
     rows = run_cwdaily(year, work)
-    season = assemble(year, rows)
-
-    # Fill in the two stats cwdaily cannot supply. A failure here degrades the
-    # HLD and PICK categories to zero rather than failing the whole ingest, but
-    # it says so loudly instead of leaving a silent gap.
-    try:
-        events = run_cwevent(year, work)
-        summary = holds.apply_to_pitching_lines(season.pitching, events)
-        season.derived = {"source": "cwevent", **summary}
-    except SourceUnavailable as exc:
-        season.derived = {"source": None, "error": str(exc), "holds": 0, "pickoffs": 0}
-    return season
+    return assemble(year, rows)
 
 
 def assemble(year: int, rows: Iterable[dict[str, str]]) -> SeasonData:

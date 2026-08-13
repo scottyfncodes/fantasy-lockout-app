@@ -7,8 +7,6 @@ import pytest
 from app.scoring import (
     ScoringConfig,
     is_cycle,
-    is_no_hitter,
-    is_perfect_game,
     is_quality_start,
     score_batting,
     score_day,
@@ -28,8 +26,7 @@ def bat(**kw):
 
 
 def pit(**kw):
-    base = dict(gs=0, outs=0, bf=0, h=0, er=0, bb=0, hbp=0, so=0, w=0, sv=0, hld=0,
-                cg=0, pick=0, errors_allowed=0)
+    base = dict(gs=0, outs=0, bf=0, h=0, er=0, bb=0, hbp=0, so=0, w=0, sv=0, cg=0)
     base.update(kw)
     return base
 
@@ -57,8 +54,6 @@ def test_batting_values(stat, line, expected, cfg):
     ("SV", pit(sv=1), 10),
     ("ER", pit(er=1), -0.5),
     ("K", pit(so=1), 1.5),
-    ("HLD", pit(hld=1), 5),
-    ("PICK", pit(pick=1), 5),
 ])
 def test_pitching_values(stat, line, expected, cfg):
     assert score_pitching(line, cfg).points == expected
@@ -108,22 +103,6 @@ def test_quality_start_rule(cfg):
     assert not is_quality_start(pit(gs=0, outs=18, er=0), cfg), "relievers can't earn a QS"
 
 
-def test_no_hitter_and_perfect_game(cfg):
-    nono = pit(gs=1, outs=27, cg=1, h=0, bb=2, bf=29, so=8)
-    assert is_no_hitter(nono) and not is_perfect_game(nono)
-    assert score_pitching(nono, cfg).breakdown["NH"] == 50
-
-    perfect = pit(gs=1, outs=27, cg=1, h=0, bb=0, hbp=0, bf=27, so=10, errors_allowed=0)
-    assert is_perfect_game(perfect)
-    scored = score_pitching(perfect, cfg)
-    assert scored.breakdown["NH"] == 50 and scored.breakdown["PG"] == 100
-
-
-def test_combined_no_hitter_earns_nothing(cfg):
-    """Six innings of hitless relief is not a no-hitter."""
-    assert not is_no_hitter(pit(gs=1, outs=18, h=0, cg=0))
-
-
 def test_two_way_player_gets_both_halves(cfg):
     scored = score_day(bat(hr=1), pit(gs=1, outs=21, so=9, w=1), cfg)
     assert scored.points == pytest.approx(4 + 10.5 + 13.5 + 4 + 4)  # HR, IP, K, W, QS
@@ -140,3 +119,27 @@ def test_config_is_editable_without_touching_logic():
     cfg = ScoringConfig.from_dict({"batting": {"HR": 10}, "pitching": {"K": 3}})
     assert score_batting(bat(hr=2), cfg).points == 20
     assert score_pitching(pit(so=2), cfg).points == 6
+
+
+# ---------------------------------------------------------------------------
+# categories the league removed
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("category", ["HLD", "PICK", "NH", "PG"])
+def test_retired_categories_are_gone_from_the_config(category, cfg):
+    """Holds, pickoffs, no-hitters and perfect games no longer score."""
+    assert category not in cfg.pitching
+
+
+def test_a_hitless_complete_game_scores_only_the_ordinary_categories(cfg):
+    """What used to be worth 150 bonus points is now just a very good start."""
+    scored = score_pitching(
+        pit(gs=1, outs=27, cg=1, h=0, bb=0, hbp=0, bf=27, so=10, w=1), cfg,
+    )
+    assert set(scored.breakdown) == {"IP", "W", "CG", "K", "QS"}
+    assert scored.points == 13.5 + 4 + 10 + 15 + 4
+
+
+def test_stray_hold_or_pickoff_data_cannot_score(cfg):
+    """Even if a source supplied them, there is no category to pay them out."""
+    assert score_pitching(pit(hld=3, pick=2), cfg).points == 0
