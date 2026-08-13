@@ -39,6 +39,7 @@ season). To see it with data in it:
 ```bash
 python -m scripts.seed_demo --teams 10 --humans 3 --weeks 7   # prints a join code
 python -m scripts.ui_smoke --code <CODE> ...                  # every page in a real browser
+python -m scripts.balance_report --year 2019 --teams 12       # what each slot is worth
 ```
 
 `ui_smoke` walks all nine pages in headless Chromium and fails on any console
@@ -46,6 +47,9 @@ error, uncaught exception or failed request — a typecheck proves the code
 compiles, not that a page renders. It needs `pip install playwright`; nothing
 else does, so it is not in `requirements.txt`. Pass `--mobile` for a phone
 viewport.
+
+`balance_report` answers "is this roster shape still sensible under this
+scoring config?" — see [Positional value](#positional-value).
 
 ---
 
@@ -171,6 +175,42 @@ injury that hadn't happened yet.
 
 ---
 
+## Positional value
+
+Changing the scoring rules changes which positions are worth drafting, so
+`scripts/balance_report.py` prints what each slot is actually worth: what
+starters score, what replacement level is, the gap between them (VOR — the real
+worth of a slot), and how many of the startable players belong to that slot
+*alone* rather than being borrowed from another position.
+
+That last column is the one that catches problems. On a synthetic 2019 with 12
+teams:
+
+```
+  SLOT    x  POOL     BEST  STARTER     REPL      VOR  PER TEAM    SOLE
+  C       1    60      938      823      743       80       823  11/12
+  OF      3   166      960      717      604      113      2150  24/36
+  SP      2   213      678      589      550       39      1178  11/24
+  RP      3   330      678      514      406      107      1541   5/36
+```
+
+Catcher is genuinely scarce (11 of 12 startable catchers play nowhere else).
+The RP slot looks healthy on points, but only **5 of its 36 startable players
+are relief-only** — the rest are swingmen carried by starts. Pure relievers
+run best 460 / 36th-best 256 against a replacement-level outfielder at 604.
+
+Two things to keep in mind before acting on it: a player eligible at several
+slots is counted at each of them (standard for scarcity analysis, which is why
+the SOLE column exists), and **these numbers come from the synthetic
+generator** — they describe its assumptions about playing time, not baseball.
+Run it against a real cached season before changing any rules.
+
+`--compare '{"pitching":{"SV":20}}'` re-runs everything with overrides applied
+and shows the delta. It warns when an override names a category the cached
+season has no data for, so a zero delta never gets misread as "no effect".
+
+---
+
 ## Configuration
 
 Nothing about league shape is hardcoded. `app/league_config.json` holds the
@@ -277,6 +317,7 @@ backend/
   scripts/
     seed_demo.py                   build a league with real data in it
     ui_smoke.py                    walk every page in a real browser
+    balance_report.py              what each roster slot is worth
   tests/                           scoring, calendar, schedule, rosters,
                                    lineups/IL, waivers, replay, bot integrity, API
 frontend/

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fmt } from '../lib/api';
+import { fmt, tokens } from '../lib/api';
 import { useApi } from '../lib/hooks';
 import { ErrorBanner, Loading } from '../components/common';
 import { Link } from '../lib/router';
@@ -15,6 +15,12 @@ export default function Matchups({ code }: { code: string }) {
 
   if (error) return <ErrorBanner message={error} />;
   if (!data) return <Loading what="matchups" />;
+
+  // "How am I doing this week" is the question this page exists to answer, so
+  // the manager's own matchup leads and is marked.
+  const myTeamId = tokens.teamId(code);
+  const isMine = (m: any) => !!myTeamId && (m.home_team_id === myTeamId || m.away_team_id === myTeamId);
+  const matchups = [...data.matchups].sort((a, b) => Number(isMine(b)) - Number(isMine(a)));
 
   return (
     <>
@@ -46,13 +52,14 @@ export default function Matchups({ code }: { code: string }) {
       ) : null}
 
       <div className="grid two">
-        {data.matchups.map((m: any) => {
+        {matchups.map((m: any) => {
           // Whoever is ahead reads bright, final or not — a live matchup is
           // the thing managers check most, and it should be scannable.
           const leader =
             m.home_points === m.away_points ? null : m.home_points > m.away_points ? 'home' : 'away';
           return (
             <div className="card tight" key={m.slot}>
+              {isMine(m) ? <span className="tag slot">your matchup</span> : null}
               <div className="row between">
                 <strong className={leader === 'away' ? 'muted' : ''}>{m.home_name}</strong>
                 <span className="mono">{fmt.points(m.home_points)}</span>
@@ -77,7 +84,7 @@ export default function Matchups({ code }: { code: string }) {
         })}
       </div>
 
-      {!data.matchups.length ? (
+      {!matchups.length ? (
         <p className="muted">No matchups scheduled for this week.</p>
       ) : null}
     </>
