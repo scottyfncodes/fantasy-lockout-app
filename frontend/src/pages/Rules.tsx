@@ -20,8 +20,8 @@ export default function Rules({ code }: { code: string }) {
         shows you nothing but stats through the current replay date, and waiver bids are blind —
         but none of that erases what you personally remember about this season. Blind FAAB removes
         the app's information advantage; it cannot remove yours. If the league decides
-        memory-based sniping is a problem, the commissioner can freeze free-agent adds for the
-        final weeks of the regular season.
+        memory-based sniping is a problem, rosters already freeze once the playoffs begin —
+        the bracket is decided by the team you built.
       </div>
 
       {cfg.roster_discrepancy ? <div className="banner">{cfg.roster_discrepancy.message}</div> : null}
@@ -65,7 +65,15 @@ export default function Rules({ code }: { code: string }) {
             pitcher. An IL slot only accepts a player the real transaction log has on the
             injured list that week; unused IL slots hold bench players.
           </p>
-          <p className="small muted">FAAB budget: {cfg.faab_budget} · waivers clear after {cfg.waiver_clear_days} days.</p>
+          <p className="small muted">
+            FAAB budget: {cfg.faab_budget} · waivers clear after {cfg.waiver_clear_days} days ·{' '}
+            {cfg.freeze_adds_in_playoffs
+              ? 'rosters freeze once the playoffs begin'
+              : 'adds stay open through the playoffs'}
+            {cfg.freeze_adds_final_weeks
+              ? `, and for the final ${cfg.freeze_adds_final_weeks} weeks of the regular season`
+              : ''}.
+          </p>
         </div>
       </div>
 

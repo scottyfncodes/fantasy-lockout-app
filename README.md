@@ -163,12 +163,14 @@ league has. Three rules, all enforced in code:
    the start of fantasy week 1, so real games played before the replay window
    (a season opening on a Thursday plays several) never leak in.
 3. **Waivers are blind FAAB, processed weekly**, with dropped players sitting
-   on waivers before they clear. No same-day pickups, no drop-and-re-add to
-   dodge a rival's bid, no visibility into other bids.
+   on waivers before they clear, and rosters frozen once the playoffs start.
+   No same-day pickups, no drop-and-re-add to dodge a rival's bid, no
+   visibility into other bids.
 
 What this does *not* do is erase a manager's memory of the season. The rules
-page says so plainly, and `freeze_adds_final_weeks` is there if the league
-decides late-season sniping matters.
+page says so plainly. Rosters freeze once the playoffs begin, which removes the
+window where memory is worth the most; `freeze_adds_final_weeks` extends that
+back into the regular season if a league wants it.
 
 **IL rule.** A player's status is read on the Monday the week begins — the
 lineup-lock moment. Already on the IL: unstartable, stashable in an IL slot.
@@ -279,10 +281,18 @@ scoring rules after the fact, so the schema no longer carries `hld`, `pick` or
 `errors_allowed` and the pipeline no longer derives them. Re-adding any of them
 means restoring the column, the generator field and the scoring entry together.
 
-Still worth a decision before a real season:
+**Rosters are 40, and the discrepancy is settled.** The original rules quoted
+both an itemised 20 starters and a headline 23 active / 45 total. The league
+settled on **40**: the itemised 20 starters, a 15-man bench and 5 IL slots. The
+`roster_discrepancy` check stays in place — a commissioner can still edit
+`active_slots` into disagreement with the declared totals, and a roster that
+quietly stops matching the rules page is worth catching.
 
-* whether the roster totals should be 42 or 45;
-* whether to enable `freeze_adds_final_weeks`.
+**Rosters freeze when the playoffs begin.** Once the bracket starts, an add is
+pure memory sniping: the eight teams still alive know exactly who caught fire
+in September, and the bracket should be decided by the team a manager built.
+`freeze_adds_final_weeks` is a separate, optional knob that extends the freeze
+back into the last N weeks of the regular season (0 by default).
 
 ### Not in v1
 

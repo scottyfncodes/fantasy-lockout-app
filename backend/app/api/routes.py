@@ -300,6 +300,7 @@ def free_agents(
         "as_of": timeline.as_of_date(conn, league, cfg),
         "players": pool,
         "adds_frozen": waivers_svc.adds_frozen(cfg, (league["current_week"] or 1) + 1),
+        "frozen_reason": waivers_svc.freeze_reason(cfg, (league["current_week"] or 1) + 1),
         "note": (
             "Stats shown are through the current replay date only. The app never "
             "shows full-season or future numbers for free agents."

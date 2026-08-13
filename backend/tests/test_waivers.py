@@ -147,3 +147,48 @@ def test_losing_bids_are_reported_after_processing(conn, league, cfg):
     summary = waivers.summary(conn, league, cfg, 2)
     statuses = {r["team_id"]: r["status"] for r in summary["results"]}
     assert statuses[b["id"]] == "won" and statuses[a["id"]] == "lost"
+
+
+# ---------------------------------------------------------------------------
+# the playoff freeze
+# ---------------------------------------------------------------------------
+
+def test_rosters_freeze_when_the_playoffs_begin(conn, league, cfg):
+    """The bracket is decided by the team you built, not by September memory."""
+    assert not waivers.adds_frozen(cfg, cfg.regular_season_weeks)
+    assert waivers.adds_frozen(cfg, cfg.regular_season_weeks + 1)
+    assert waivers.adds_frozen(cfg, cfg.total_weeks)
+    assert "playoffs" in waivers.freeze_reason(cfg, cfg.regular_season_weeks + 1)
+
+
+def test_a_playoff_bid_is_refused_rather_than_left_pending(conn, league, cfg):
+    """The rollover never processes waivers in playoff weeks.
+
+    Accepting a bid there would leave it pending for ever, so it has to be
+    refused at submission with a reason a manager can act on.
+    """
+    team = leagues.teams(conn, league["id"])[0]
+    target = a_free_agent(conn, league, cfg)
+    conn.execute("UPDATE leagues SET current_week = ? WHERE id = ?",
+                 (cfg.regular_season_weeks, league["id"]))
+    playoff_league = leagues.require_league(conn, league["id"])
+
+    with pytest.raises(waivers.WaiverError, match="frozen for the playoffs"):
+        waivers.submit_bid(conn, playoff_league, cfg, team["id"], target["player_id"], 5, None)
+
+    pending = conn.execute(
+        "SELECT COUNT(*) n FROM waiver_bids WHERE league_id=? AND status='pending'",
+        (league["id"],),
+    ).fetchone()["n"]
+    assert pending == 0
+
+
+def test_bots_do_not_bid_once_rosters_freeze(conn, league, cfg):
+    from app.services import bots
+    assert bots.submit_bot_bids(conn, league, cfg, cfg.regular_season_weeks + 1) == []
+
+
+def test_the_playoff_freeze_can_be_turned_off(conn, league):
+    open_cfg = leagues.league_config(league).merged({"freeze_adds_in_playoffs": False})
+    assert not waivers.adds_frozen(open_cfg, open_cfg.regular_season_weeks + 1)
+    assert waivers.freeze_reason(open_cfg, open_cfg.regular_season_weeks + 1) is None

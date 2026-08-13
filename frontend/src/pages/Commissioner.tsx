@@ -79,6 +79,18 @@ export default function Commissioner({ code }: { code: string }) {
             </label>
           ))}
           <label className="field" style={{ marginBottom: '.4rem' }}>
+            Freeze rosters once the playoffs begin
+            <select
+              value={String(settings.freeze_adds_in_playoffs ?? cfg.freeze_adds_in_playoffs)}
+              onChange={(e) =>
+                setSettings({ ...settings, freeze_adds_in_playoffs: e.target.value === 'true' })
+              }
+            >
+              <option value="true">yes</option>
+              <option value="false">no</option>
+            </select>
+          </label>
+          <label className="field" style={{ marginBottom: '.4rem' }}>
             Bots participate in waivers
             <select
               value={String(settings.bots_use_waivers ?? cfg.bots_use_waivers)}

@@ -15,8 +15,10 @@ Design constraints, all of them about keeping a replay league honest:
 * **Drops go through waivers.**  A dropped player sits for
   ``waiver_clear_days`` before becoming a free agent, so a manager cannot drop
   and instantly re-add someone to dodge a rival's bid.
-* Optionally, adds can be frozen for the final N weeks
-  (``freeze_adds_final_weeks``), when memory-based sniping matters most.
+* **Rosters freeze when the playoffs begin.** An add at that point is pure
+  memory sniping, and the bracket should be decided by the team a manager
+  built. ``freeze_adds_final_weeks`` optionally extends the freeze back into
+  the last N weeks of the regular season.
 """
 
 from __future__ import annotations
@@ -102,9 +104,31 @@ def free_agents(
 # ---------------------------------------------------------------------------
 
 def adds_frozen(cfg: LeagueConfig, week: int) -> bool:
-    if cfg.freeze_adds_final_weeks <= 0:
-        return False
-    return week > cfg.regular_season_weeks - cfg.freeze_adds_final_weeks
+    """Are free-agent adds closed for ``week``?
+
+    Rosters freeze when the playoffs begin. By then an add is pure memory
+    sniping — the eight teams still alive know exactly who caught fire in
+    September — and the bracket should be decided by the roster a manager
+    built. It also closes a real hole: the weekly rollover never *processed*
+    waivers in playoff weeks, so a bid placed then used to sit pending for
+    ever instead of being refused.
+    """
+    if cfg.freeze_adds_in_playoffs and week > cfg.regular_season_weeks:
+        return True
+    if cfg.freeze_adds_final_weeks > 0:
+        return week > cfg.regular_season_weeks - cfg.freeze_adds_final_weeks
+    return False
+
+
+def freeze_reason(cfg: LeagueConfig, week: int) -> str | None:
+    """Why adds are closed, phrased for a manager rather than a log."""
+    if not adds_frozen(cfg, week):
+        return None
+    if cfg.freeze_adds_in_playoffs and week > cfg.regular_season_weeks:
+        return ("rosters are frozen for the playoffs — the bracket is decided by "
+                "the team you built")
+    return (f"free-agent adds are frozen for the final {cfg.freeze_adds_final_weeks} "
+            "weeks of the regular season")
 
 
 def submit_bid(
@@ -118,11 +142,9 @@ def submit_bid(
     priority: int = 1,
 ) -> int:
     week = (league["current_week"] or 1) + 1  # bids process for the upcoming week
-    if adds_frozen(cfg, week):
-        raise WaiverError(
-            f"free-agent adds are frozen for the final {cfg.freeze_adds_final_weeks} "
-            "weeks of the regular season"
-        )
+    reason = freeze_reason(cfg, week)
+    if reason:
+        raise WaiverError(reason)
     team = leagues.get_team(conn, league["id"], team_id)
     if team is None:
         raise WaiverError("unknown team")
@@ -361,6 +383,7 @@ def summary(
     return {
         "week": week,
         "frozen": adds_frozen(cfg, week),
+        "frozen_reason": freeze_reason(cfg, week),
         "results": [dict(r) for r in rows],
     }
 

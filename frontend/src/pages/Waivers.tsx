@@ -72,7 +72,9 @@ export default function Waivers({ code }: { code: string }) {
         numbers for a free agent.
       </div>
       {pool.adds_frozen ? (
-        <div className="banner">Adds are frozen for the final weeks of the regular season.</div>
+        <div className="banner">
+          Adds are closed — {pool.frozen_reason ?? 'free-agent moves are frozen'}.
+        </div>
       ) : null}
 
       <ErrorBanner message={msg} />
@@ -111,7 +113,12 @@ export default function Waivers({ code }: { code: string }) {
                   <br />
                   <span className="muted">{p.games} g · {p.points_per_game}/g</span>
                 </span>
-                <button className="small" onClick={() => { setTarget(p); setAmount(1); }}>
+                <button
+                  className="small"
+                  disabled={pool.adds_frozen}
+                  title={pool.adds_frozen ? pool.frozen_reason ?? 'adds are closed' : undefined}
+                  onClick={() => { setTarget(p); setAmount(1); }}
+                >
                   Bid
                 </button>
               </div>
@@ -197,8 +204,8 @@ export default function Waivers({ code }: { code: string }) {
 
       <p className="footer-note">
         Honour-system note: blind bidding removes the app's information advantage, but it
-        cannot remove your memory of the season. If the league decides that matters, the
-        commissioner can freeze adds for the final weeks.
+        cannot remove your memory of the season. Rosters freeze once the playoffs begin,
+        so the bracket is decided by the team you built.
       </p>
     </>
   );

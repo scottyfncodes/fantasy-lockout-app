@@ -2,7 +2,7 @@
 
 Every knob the commissioner can turn lives here.  Roster shape, team count,
 bench/IL depth, FAAB budget and season length are all config values — the
-engine reads them and never assumes 12 teams or a 23-man active roster.
+engine reads them and never assumes 12 teams or a fixed roster size.
 """
 
 from __future__ import annotations
@@ -39,14 +39,15 @@ class LeagueConfig:
             "OF": 3, "UTIL": 3, "SP": 2, "RP": 3, "P": 4,
         }
     )
-    bench_size: int = 17
+    bench_size: int = 15
     il_size: int = 5
 
-    # What the league *says* the roster is. The itemised slot list above is the
-    # authority on composition; these two numbers exist so a mismatch surfaces
-    # instead of being silently resolved. See `roster_discrepancy`.
-    declared_active_size: int = 23
-    declared_roster_size: int = 45
+    # What the league *says* the roster is, kept alongside the itemised slot
+    # list so any mismatch surfaces instead of being silently resolved. The
+    # league settled on 40 (20 starters + 15 bench + 5 IL), so these agree.
+    # See `roster_discrepancy`.
+    declared_active_size: int = 20
+    declared_roster_size: int = 40
 
     regular_season_weeks: int = 18
     playoff_teams: int = 8
@@ -55,6 +56,12 @@ class LeagueConfig:
     faab_budget: int = 100
     bots_use_waivers: bool = True
     waiver_clear_days: int = 2
+    # Once the bracket starts, a free-agent add is pure memory-sniping: the
+    # teams still playing know exactly who is about to get hot. Rosters are
+    # frozen for the playoffs.
+    freeze_adds_in_playoffs: bool = True
+    # Separate, optional knob: also freeze the last N weeks of the regular
+    # season. 0 leaves the regular season open.
     freeze_adds_final_weeks: int = 0
 
     eligible_year_min: int = 2000
@@ -88,14 +95,15 @@ class LeagueConfig:
     def roster_discrepancy(self) -> dict[str, Any] | None:
         """Report a mismatch between the slot list and the declared totals.
 
-        The league rules give both an itemised active roster (C 1, 1B 1, 2B 1,
+        The original rules gave both an itemised active roster (C 1, 1B 1, 2B 1,
         3B 1, SS 1, OF 3, UTIL 3, SP 2, RP 3, P 4) and headline totals of 23
-        active / 45 overall.  The itemised list adds up to 20, so the totals
-        cannot both be right.  Rather than invent three unspecified slots or
-        quietly contradict the headline, the engine uses the itemised list —
-        it is the only unambiguous statement of *composition* — and reports the
-        gap here so the commissioner decides.  Closing it is one config edit,
-        e.g. UTIL 3 -> 5 and P 4 -> 5.
+        active / 45 overall, which cannot both be true — the list adds up to 20.
+        The league settled it at **40**: the itemised 20 starters, a 15-man
+        bench and 5 IL slots, so the defaults now agree and this returns None.
+
+        The check stays because a commissioner can still edit `active_slots`
+        into disagreement with the declared totals, and a roster that quietly
+        stops matching the rules page is worth catching.
         """
         if self.active_size == self.declared_active_size and \
                 self.roster_size == self.declared_roster_size:

@@ -46,20 +46,22 @@ def test_bench_and_il_are_configurable():
     assert cfg.roster_size == cfg.active_size + 15
 
 
-def test_roster_discrepancy_is_reported_not_hidden():
-    """The rules quote 23 active / 45 total but itemise only 20 slots."""
+def test_the_league_settled_on_forty():
+    """20 itemised starters + a 15-man bench + 5 IL slots."""
     cfg = LeagueConfig.load()
-    gap = cfg.roster_discrepancy()
-    assert gap is not None
-    assert gap["itemised_active_size"] == 20 and gap["declared_active_size"] == 23
+    assert (cfg.active_size, cfg.bench_size, cfg.il_size) == (20, 15, 5)
+    assert cfg.roster_size == 40
+    assert cfg.roster_discrepancy() is None, "the defaults must agree with the rules page"
 
 
-def test_discrepancy_clears_when_the_slots_add_up():
+def test_a_roster_that_stops_matching_the_declared_totals_is_reported():
+    """The check still catches a commissioner editing slots into disagreement."""
     cfg = LeagueConfig.load().merged({"active_slots": {
         "C": 1, "1B": 1, "2B": 1, "3B": 1, "SS": 1, "OF": 3, "UTIL": 5, "SP": 2, "RP": 3, "P": 5,
     }})
-    assert cfg.active_size == 23 and cfg.roster_size == 45
-    assert cfg.roster_discrepancy() is None
+    gap = cfg.roster_discrepancy()
+    assert gap is not None
+    assert gap["itemised_active_size"] == 23 and gap["declared_active_size"] == 20
 
 
 def test_pool_depth_check_flags_a_thin_season():
