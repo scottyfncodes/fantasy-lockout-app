@@ -41,6 +41,11 @@ export default function Rules({ code }: { code: string }) {
               final is two weeks on combined points.
             </li>
             <li>Lineups lock when the week starts. One day of games processes each night at 8:00 PM Central.</li>
+            <li>
+              {cfg.draft_pick_seconds
+                ? `Draft picks are on a ${cfg.draft_pick_seconds}-second clock — miss it and the room picks for you.`
+                : 'The draft has no pick clock; the room waits for each manager.'}
+            </li>
             <li>Season year drawn at random from cached seasons ({cfg.eligible_year_min}+).</li>
           </ul>
         </div>

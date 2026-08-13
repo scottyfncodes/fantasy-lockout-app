@@ -150,6 +150,7 @@ tr:last-child td { border-bottom: none; }
 }
 .clock.mine { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-dim); }
 .pick-list { max-height: 60vh; overflow-y: auto; }
+.countdown-warn { color: var(--warn); font-weight: 700; font-variant-numeric: tabular-nums; }
 .player-row { display: flex; gap: .5rem; align-items: center; padding: .4rem .25rem; border-bottom: 1px solid var(--line); }
 .player-row:last-child { border-bottom: none; }
 .player-name { font-weight: 600; }

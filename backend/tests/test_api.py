@@ -346,3 +346,63 @@ def test_an_explicit_week_is_always_honoured(client, drafted):
     current = client.get(f"/api/leagues/{code}").json()["timeline"]["current_week"]
     view = client.get(f"/api/leagues/{code}/teams/{team}/lineup?week={current}").json()
     assert view["week"] == current, "asking for a locked week must still show it"
+
+
+def test_an_idle_manager_does_not_stall_the_draft(client):
+    """One dropped connection must not hold thirteen other people hostage."""
+    league = make_league(client, {
+        **TINY_ROSTER, "draft_order_mode": "randomizer", "draft_pick_seconds": 1,
+    })
+    code = league["code"]
+    manager = join(client, code, "Absent")
+    client.post(f"/api/leagues/{code}/start",
+                headers={"X-Commissioner-Token": league["commissioner_token"]})
+
+    lobby = f"/ws/{code}/lobby?token={manager['manager_token']}&commish={league['commissioner_token']}"
+    with client.websocket_connect(lobby) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start_minigame"})
+        for _ in range(50):
+            if ws.receive_json()["type"] == "draft_order":
+                break
+
+    # Connect, then never pick. The clock has to finish the draft on its own.
+    with client.websocket_connect(f"/ws/{code}/draft?token={manager['manager_token']}") as ws:
+        msg = ws.receive_json()
+        assert msg["pick_seconds"] == 1
+        # Wait for `draft_complete`, not the last `draft_state`: the board fills
+        # a moment before the season finishes being set up.
+        for _ in range(400):
+            if msg["type"] == "draft_complete":
+                break
+            if msg["type"] == "draft_error":
+                pytest.fail(msg["message"])
+            msg = ws.receive_json()
+        else:
+            pytest.fail("the clock never finished the draft")
+
+    assert client.get(f"/api/leagues/{code}/draft").json()["progress"]["complete"]
+    assert client.get(f"/api/leagues/{code}").json()["phase"] == "season"
+
+
+def test_the_clock_can_be_switched_off(client):
+    """draft_pick_seconds = 0 means the room waits for the manager."""
+    league = make_league(client, {
+        **TINY_ROSTER, "draft_order_mode": "randomizer", "draft_pick_seconds": 0,
+    })
+    code = league["code"]
+    manager = join(client, code, "Deliberate")
+    client.post(f"/api/leagues/{code}/start",
+                headers={"X-Commissioner-Token": league["commissioner_token"]})
+    lobby = f"/ws/{code}/lobby?token={manager['manager_token']}&commish={league['commissioner_token']}"
+    with client.websocket_connect(lobby) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start_minigame"})
+        for _ in range(50):
+            if ws.receive_json()["type"] == "draft_order":
+                break
+
+    with client.websocket_connect(f"/ws/{code}/draft?token={manager['manager_token']}") as ws:
+        state = ws.receive_json()
+    assert state["pick_seconds"] == 0
+    assert state["seconds_remaining"] is None

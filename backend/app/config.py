@@ -63,6 +63,9 @@ class LeagueConfig:
 
     draft_order_mode: str = "speed_round"  # or "randomizer"
     speed_round_seconds: int = 10
+    # Seconds a manager gets to make a pick before the room picks for them.
+    # 0 disables the clock entirely and the draft waits indefinitely.
+    draft_pick_seconds: int = 90
 
     # ---- derived -------------------------------------------------------
     @property
@@ -185,6 +188,8 @@ class LeagueConfig:
             )
         if self.faab_budget < 0:
             raise ConfigError("faab_budget cannot be negative")
+        if self.draft_pick_seconds < 0:
+            raise ConfigError("draft_pick_seconds cannot be negative")
 
     @property
     def bracket_rounds(self) -> int:

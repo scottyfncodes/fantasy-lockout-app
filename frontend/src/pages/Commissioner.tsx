@@ -67,6 +67,7 @@ export default function Commissioner({ code }: { code: string }) {
             ['faab_budget', 'FAAB budget'],
             ['waiver_clear_days', 'Waiver clear days'],
             ['freeze_adds_final_weeks', 'Freeze adds for final N weeks'],
+            ['draft_pick_seconds', 'Seconds per draft pick (0 = no clock)'],
           ].map(([key, label]) => (
             <label className="field" key={key} style={{ marginBottom: '.4rem' }}>
               {label}

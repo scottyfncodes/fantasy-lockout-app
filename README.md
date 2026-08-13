@@ -63,7 +63,10 @@ scoring config?" — see [Positional value](#positional-value).
 3. **Draft order.** A ten-second Speed Round: everyone taps the same moving
    ball at the same moment, most taps picks first. (A provably-fair randomizer
    is a config switch away.)
-4. **Snake draft** in a live room — picks land instantly for everyone.
+4. **Snake draft** in a live room — picks land instantly for everyone, on a
+   90-second pick clock so one dropped connection cannot stall thirteen other
+   managers. The clock is server-side (a reconnect does not reset it) and
+   `draft_pick_seconds: 0` turns it off.
 5. **Season.** Every night at 8:00 PM Central the replay advances one day.
    Points accrue Monday–Sunday; the higher weekly total wins the matchup.
 6. **Playoffs.** Weeks 19–22: quarterfinals, semifinals, then a two-week final

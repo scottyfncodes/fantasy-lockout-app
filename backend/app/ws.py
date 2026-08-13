@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from typing import Any
 
 from fastapi import WebSocket
@@ -48,6 +49,7 @@ class Hub:
         self._rooms: dict[str, Room] = {}
         self._rounds: dict[str, SpeedRound] = {}
         self._draft_locks: dict[str, asyncio.Lock] = {}
+        self._pick_deadlines: dict[str, tuple[int, float]] = {}
         self._tasks: dict[str, asyncio.Task] = {}
 
     def room(self, league_id: str, name: str) -> Room:
@@ -71,6 +73,21 @@ class Hub:
         if league_id not in self._draft_locks:
             self._draft_locks[league_id] = asyncio.Lock()
         return self._draft_locks[league_id]
+
+    def pick_deadline(self, league_id: str, overall: int, seconds: float) -> float:
+        """When the pick currently on the clock expires (monotonic).
+
+        Keyed by the overall pick number so reconnecting, or a second client
+        opening the room, cannot hand a manager a fresh clock.
+        """
+        now = time.monotonic()
+        existing = self._pick_deadlines.get(league_id)
+        if existing is None or existing[0] != overall:
+            self._pick_deadlines[league_id] = (overall, now + seconds)
+        return self._pick_deadlines[league_id][1]
+
+    def clear_deadline(self, league_id: str) -> None:
+        self._pick_deadlines.pop(league_id, None)
 
     # ---- background tasks ---------------------------------------------
     def spawn(self, key: str, coro) -> None:

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { tokens } from '../lib/api';
 import { useApi, useSocket } from '../lib/hooks';
 import { useRouter } from '../lib/router';
@@ -17,8 +17,26 @@ export default function Draft({ code }: { code: string }) {
   const [position, setPosition] = useState('');
   const [version, setVersion] = useState(0);
 
+  // The server owns the clock; this only renders it, ticking down from the
+  // value that arrived with the last state so we aren't broadcasting a frame
+  // every second to every client.
+  const [remaining, setRemaining] = useState<number | null>(null);
+  const clockRef = useRef<number | null>(null);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setRemaining((r) => (r === null ? null : Math.max(0, r - 1)));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
   const { state: wsState, send } = useSocket(code, 'draft', (m) => {
-    if (m.type === 'draft_state') setState(m);
+    if (m.type === 'draft_state') {
+      setState(m);
+      if (m.on_clock?.overall !== clockRef.current) {
+        clockRef.current = m.on_clock?.overall ?? null;
+      }
+      setRemaining(m.seconds_remaining ?? null);
+    }
     else if (m.type === 'pick_made') {
       setFeed((f) => [
         `R${m.round}.${m.pick_in_round} — ${m.player_name} (${m.positions})${m.auto ? ' [auto]' : ''}`,
@@ -101,6 +119,13 @@ export default function Draft({ code }: { code: string }) {
                   Round {onClock.round}, pick {onClock.pick_in_round} (#{onClock.overall} overall)
                   {onClock.is_bot ? ' · bot' : ''}
                 </div>
+                {remaining !== null && !onClock.is_bot ? (
+                  <div className={remaining <= 15 ? 'countdown-warn' : 'small muted'}>
+                    {remaining > 0
+                      ? `${Math.ceil(remaining)}s to pick`
+                      : 'out of time — auto-picking'}
+                  </div>
+                ) : null}
               </>
             ) : (
               <strong>Draft complete</strong>

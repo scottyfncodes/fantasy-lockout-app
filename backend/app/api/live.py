@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import sqlite3
+import time
 from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -240,11 +241,12 @@ async def draft_socket(
             await websocket.close(code=4404)
             return
         league_id = league["id"]
-        state = draft_svc.state(conn, league)
 
     room = hub.room(league_id, "draft")
     await room.join(websocket)
-    await websocket.send_json(state)
+    # Through the same helper as every broadcast, so the first frame a client
+    # sees carries the pick clock like all the others.
+    await websocket.send_json(await run_in_threadpool(_draft_state, league_id))
     hub.spawn(f"draftbot:{league_id}", _bot_pick_loop(league_id))
 
     try:
@@ -267,7 +269,19 @@ async def draft_socket(
 def _draft_state(league_id: str) -> dict[str, Any]:
     with db.closing_conn() as conn:
         league = leagues_svc.require_league(conn, league_id)
-        return draft_svc.state(conn, league)
+        cfg = leagues_svc.league_config(league)
+        state = draft_svc.state(conn, league)
+
+    # Attach the clock so clients can count down locally rather than being
+    # driven by a broadcast every second.
+    state["pick_seconds"] = cfg.draft_pick_seconds
+    state["seconds_remaining"] = None
+    on_clock = state.get("on_clock")
+    if on_clock and cfg.draft_pick_seconds:
+        deadline = hub.pick_deadline(
+            league_id, on_clock["overall"], cfg.draft_pick_seconds)
+        state["seconds_remaining"] = max(0.0, round(deadline - time.monotonic(), 1))
+    return state
 
 
 async def _handle_pick(league_id: str, team_id: str, player_id: str | None, auto: bool) -> None:
@@ -309,6 +323,7 @@ async def _push_state(league_id: str) -> None:
 
 
 def _finish_draft(league_id: str) -> None:
+    hub.clear_deadline(league_id)
     with db.closing_conn() as conn:
         league = leagues_svc.require_league(conn, league_id)
         cfg = leagues_svc.league_config(league)
@@ -336,7 +351,8 @@ async def _bot_pick_loop(league_id: str) -> None:
     """Make picks for bot teams whenever one is on the clock."""
     try:
         while True:
-            def next_bot() -> tuple[str, str] | dict[str, str] | None:
+            def next_pick() -> tuple[str, str] | dict[str, str] | None:
+                """Who to pick for right now: a bot, or a human out of time."""
                 with db.closing_conn() as conn:
                     league = leagues_svc.require_league(conn, league_id)
                     if league["phase"] != "draft":
@@ -346,16 +362,26 @@ async def _bot_pick_loop(league_id: str) -> None:
                     if not current:
                         return None
                     team = leagues_svc.get_team(conn, league["id"], current["team_id"])
-                    if not team or not team["is_bot"]:
-                        return None  # a human is on the clock; wait for them
+                    if not team:
+                        return None
+                    if not team["is_bot"]:
+                        # A human is on the clock. One manager losing their
+                        # connection must not stall thirteen other people, so
+                        # the room picks for them when the clock runs out.
+                        if not cfg.draft_pick_seconds:
+                            return None
+                        deadline = hub.pick_deadline(
+                            league_id, current["overall"], cfg.draft_pick_seconds)
+                        if time.monotonic() < deadline:
+                            return None
                     choice = bots.choose_draft_pick(conn, league, cfg, team["id"])
                     if choice is None:
-                        # No legal pick exists for this bot. Waiting would stall
-                        # the whole room in silence, so say so and stand down.
+                        # No legal pick exists. Waiting would stall the whole
+                        # room in silence, so say so and stand down.
                         return {"stuck": team["id"], "name": team["name"]}
                     return (team["id"], choice["player_id"])
 
-            target = await run_in_threadpool(next_bot)
+            target = await run_in_threadpool(next_pick)
             if isinstance(target, dict):
                 await hub.room(league_id, "draft").broadcast({
                     "type": "draft_error",
@@ -367,7 +393,7 @@ async def _bot_pick_loop(league_id: str) -> None:
                 })
                 return
             if target is None:
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.5)  # also the clock's resolution
                 if await run_in_threadpool(_draft_over, league_id):
                     return
                 continue
