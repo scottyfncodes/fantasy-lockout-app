@@ -1,0 +1,44 @@
+{
+  "_comment": "League defaults. The commissioner can override any of these when creating a league; nothing here is hardcoded in the engine.",
+  "team_count": 12,
+  "min_teams": 8,
+  "max_teams": 14,
+  "lobby_timeout_seconds": 300,
+
+  "active_slots": {
+    "C": 1,
+    "1B": 1,
+    "2B": 1,
+    "3B": 1,
+    "SS": 1,
+    "OF": 3,
+    "UTIL": 3,
+    "SP": 2,
+    "RP": 3,
+    "P": 4
+  },
+  "bench_size": 17,
+  "il_size": 5,
+
+  "_roster_note": "The slot list above sums to 20 starters (42 total with bench + IL), while the league rules also quote 23 active / 45 total. The slot list wins because it is the only unambiguous statement of composition; the declared_* values below make the gap visible in the UI. To honour 23/45 instead, set UTIL to 5 and P to 5.",
+  "declared_active_size": 23,
+  "declared_roster_size": 45,
+
+  "regular_season_weeks": 18,
+  "playoff_teams": 8,
+  "playoff_weeks": 4,
+
+  "faab_budget": 100,
+  "bots_use_waivers": true,
+  "waiver_clear_days": 2,
+  "freeze_adds_final_weeks": 0,
+
+  "eligible_year_min": 2000,
+  "eligible_year_max": null,
+  "_eligible_year_max_note": "null => last completed season (current year - 1).",
+  "excluded_years": [2020],
+  "_excluded_years_note": "2020 was a 60-game season; it cannot fill a 22-week replay calendar. The pipeline coverage check may exclude further years at runtime.",
+
+  "draft_order_mode": "speed_round",
+  "speed_round_seconds": 10
+}

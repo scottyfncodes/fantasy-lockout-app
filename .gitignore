@@ -1,0 +1,19 @@
+# cached season data — rebuild with `python -m app.pipeline.build`
+backend/data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+
+# python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+
+# typescript incremental build cache
+*.tsbuildinfo
