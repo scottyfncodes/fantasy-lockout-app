@@ -29,10 +29,15 @@ jobs:
       - name: Build the image
         run: docker build -t fantasy-lockout .
 
+      # --entrypoint is required on every one of these: the image's entrypoint
+      # is the server's, and it ignores its arguments, caches seasons and execs
+      # uvicorn. Without it, a one-shot command becomes a server that never
+      # exits and the step hangs until the job times out.
       - name: Preflight — is the source reachable and is Chadwick present?
+        timeout-minutes: 3
         run: |
-          docker run --rm fantasy-lockout \
-            python -m app.pipeline.build --preflight
+          docker run --rm --entrypoint python fantasy-lockout \
+            -m app.pipeline.build --preflight
 
       - name: Ingest the season from Retrosheet
         env:
