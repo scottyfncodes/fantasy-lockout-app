@@ -58,6 +58,10 @@ def main(argv: list[str] | None = None) -> int:
     # zero. The synthetic generator apportions pitching lines approximately and
     # drifts a few percent on home runs, so checking it needs a looser bar.
     ap.add_argument("--tolerance", type=float, default=0.02)
+    # Eligibility folds in the IL feed, which is a different site with its own
+    # availability. When it is down, the box scores are still worth checking —
+    # this separates "the parsing is correct" from "the season is playable".
+    ap.add_argument("--allow-ineligible", action="store_true")
     args = ap.parse_args(argv)
     year = args.year
 
@@ -72,7 +76,9 @@ def main(argv: list[str] | None = None) -> int:
               f"{season['opening_day']} to {season['final_game_day']}")
 
         if not season["eligible"]:
-            fail(f"{year} is marked ineligible: {season['ineligible_reason']}")
+            if not args.allow_ineligible:
+                fail(f"{year} is marked ineligible: {season['ineligible_reason']}")
+            print(f"WARNING: not playable as it stands — {season['ineligible_reason']}")
         if season["game_count"] < args.min_games:
             fail(f"only {season['game_count']} games — expected at least {args.min_games}")
         if season["player_count"] < args.min_players:
