@@ -167,6 +167,33 @@ def _game_date(row: dict[str, str]) -> str:
     return f"{gid[3:7]}-{gid[7:9]}-{gid[9:11]}"
 
 
+def read_rosters(event_dir: Path) -> dict[str, dict[str, str]]:
+    """Player names and handedness from the season's .ROS files.
+
+    Event files carry only Retrosheet IDs, and cwdaily has no name column, so
+    without this a league drafts troum001 instead of Mike Trout. The .ROS files
+    ship in the same zip, one per team, comma separated as:
+
+        troum001,Trout,Mike,R,R,ANA,8
+    """
+    people: dict[str, dict[str, str]] = {}
+    for path in sorted(event_dir.glob("*.ROS")):
+        for line in path.read_text("utf-8", "replace").splitlines():
+            parts = [p.strip() for p in line.split(",")]
+            if len(parts) < 3 or not parts[0]:
+                continue
+            pid, last, first = parts[0], parts[1], parts[2]
+            name = f"{first} {last}".strip()
+            if not name:
+                continue
+            people[pid] = {
+                "name": name,
+                "bats": parts[3] if len(parts) > 3 else "",
+                "throws": parts[4] if len(parts) > 4 else "",
+            }
+    return people
+
+
 def build(year: int, cache_dir: Path | None = None) -> SeasonData:
     """Fetch, parse and normalise a full season. Raises SourceUnavailable."""
     checks = preflight()
@@ -178,11 +205,15 @@ def build(year: int, cache_dir: Path | None = None) -> SeasonData:
     work = Path(cache_dir or tempfile.mkdtemp(prefix=f"retro{year}"))
     download_events(year, work)
     rows = run_cwdaily(year, work)
-    return assemble(year, rows)
+    return assemble(year, rows, read_rosters(work))
 
 
-def assemble(year: int, rows: Iterable[dict[str, str]]) -> SeasonData:
+def assemble(
+    year: int, rows: Iterable[dict[str, str]],
+    people: dict[str, dict[str, str]] | None = None,
+) -> SeasonData:
     """Turn cwdaily rows into the same shape the synthetic generator emits."""
+    people = people or {}
     players: dict[str, dict[str, Any]] = {}
     games: dict[str, dict[str, Any]] = {}
     batting: list[dict[str, Any]] = []
@@ -209,10 +240,16 @@ def assemble(year: int, rows: Iterable[dict[str, str]]) -> SeasonData:
         if _int(row, "B_G_DH") > 0:
             positions[pid].add("DH")
 
+        person = people.get(pid, {})
         players.setdefault(pid, {
-            "player_id": pid, "season": year, "name": row.get("PLAYER_NAME", pid),
+            # Falling back to the ID keeps a player nobody can name draftable
+            # rather than dropping him, but it should be rare — the roster files
+            # cover everyone who appeared.
+            "player_id": pid, "season": year, "name": person.get("name") or pid,
             "mlb_team": row.get("TEAM_ID", ""), "positions": "",
-            "is_pitcher": 0, "bats": None, "throws": None,
+            "is_pitcher": 0,
+            "bats": person.get("bats") or None,
+            "throws": person.get("throws") or None,
         })
         if pitched:
             players[pid]["is_pitcher"] = 1

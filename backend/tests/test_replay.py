@@ -339,3 +339,47 @@ def test_day_recap_numbers_the_day_within_the_replay(conn, league, cfg):
     first = replay.day_recap(conn, league, cfg, dt.date.fromisoformat(
         timeline.week(conn, league["season_year"], cfg, 1).start.isoformat()))
     assert first["day_number"] == 1 and first["prev"] is None
+
+
+# ---------------------------------------------------------------------------
+# real player names
+# ---------------------------------------------------------------------------
+
+def test_roster_files_turn_retrosheet_ids_into_names(tmp_path):
+    """Event files carry only IDs; the .ROS files are where the people are.
+
+    Without this a league drafts troum001 rather than Mike Trout, which is the
+    whole point of replaying a real season.
+    """
+    from app.pipeline import retrosheet
+
+    (tmp_path / "2019ANA.ROS").write_text(
+        "troum001,Trout,Mike,R,R,ANA,8\n"
+        "ohtas001,Ohtani,Shohei,L,R,ANA,10\n"
+    )
+    (tmp_path / "2019LAN.ROS").write_text("bellc002,Bellinger,Cody,L,L,LAN,8\n")
+
+    people = retrosheet.read_rosters(tmp_path)
+    assert people["troum001"]["name"] == "Mike Trout"
+    assert people["troum001"]["bats"] == "R"
+    assert people["bellc002"]["name"] == "Cody Bellinger"
+    assert len(people) == 3
+
+
+def test_assemble_names_players_from_the_roster_files():
+    from app.pipeline import retrosheet
+
+    row = {
+        "GAME_ID": "ANA201904070", "PLAYER_ID": "troum001", "TEAM_ID": "ANA",
+        "OPP_ID": "TEX", "B_G": "1", "B_PA": "4", "B_AB": "3", "B_H": "2",
+        "B_HR": "1", "B_R": "2", "B_RBI": "3", "F_CF_G": "1",
+    }
+    people = {"troum001": {"name": "Mike Trout", "bats": "R", "throws": "R"}}
+
+    named = retrosheet.assemble(2019, [dict(row)], people)
+    assert named.players[0]["name"] == "Mike Trout"
+    assert named.players[0]["bats"] == "R"
+
+    # And with no roster file, the ID stands in rather than the player vanishing.
+    bare = retrosheet.assemble(2019, [dict(row)], {})
+    assert bare.players[0]["name"] == "troum001"

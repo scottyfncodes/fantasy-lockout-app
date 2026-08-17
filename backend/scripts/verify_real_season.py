@@ -195,6 +195,18 @@ def _show_who_this_actually_is(conn, year: int, limit: int = 10) -> None:
     if not best:
         fail("no batters to rank")
 
+    # A Retrosheet ID standing in for a name means the roster files were not
+    # read, and the league would draft troum001 instead of Mike Trout.
+    unnamed = [pid for pid in totals if names[pid] == pid]
+    if unnamed:
+        share = len(unnamed) / len(totals)
+        print(f"\n{len(unnamed)} of {len(totals)} batters have no name ({share:.1%})")
+        if share > 0.01:
+            fail(
+                f"{share:.0%} of batters are still Retrosheet IDs (e.g. {unnamed[0]}) — "
+                "the .ROS roster files were not read"
+            )
+
 
 if __name__ == "__main__":  # pragma: no cover
     sys.exit(main())
