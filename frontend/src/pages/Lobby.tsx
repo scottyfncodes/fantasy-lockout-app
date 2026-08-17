@@ -189,6 +189,9 @@ export default function Lobby({ code }: { code: string }) {
               {view.pool_check.free_agents_after_draft} free agents would remain after the draft.
             </div>
           ) : null}
+          {(view.season_caveats ?? []).map((caveat: string) => (
+            <div className="banner" key={caveat}>{caveat}</div>
+          ))}
         </div>
       ) : null}
 

@@ -39,9 +39,9 @@ jobs:
           docker run --rm --entrypoint python fantasy-lockout \
             -m app.pipeline.build --preflight
 
-      # The IL feed is a separate site and blocks this runner, so the ingest
-      # is allowed to land a season the app would not call playable. What is
-      # being verified here is the box-score parsing, not the IL feed.
+      # --allow-missing-il because the IL feed blocks this runner. The season
+      # stays playable and records the gap, so the verifier can then hold it to
+      # the full standard rather than being told to look past ineligibility.
       - name: Ingest the season from Retrosheet
         env:
           YEAR: ${{ inputs.year || '2019' }}
@@ -49,7 +49,7 @@ jobs:
           docker run --rm -v real-data:/data \
             -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
             --entrypoint python fantasy-lockout \
-            -m app.pipeline.build --year "$YEAR" --source retrosheet
+            -m app.pipeline.build --year "$YEAR" --source retrosheet --allow-missing-il
 
       - name: Check what landed
         env:
@@ -58,4 +58,17 @@ jobs:
           docker run --rm -v real-data:/data \
             -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
             --entrypoint python fantasy-lockout \
-            -m scripts.verify_real_season --year "$YEAR" --allow-ineligible
+            -m scripts.verify_real_season --year "$YEAR"
+
+      # The point of all of this: a league of real players, drafted and played.
+      # Nothing above proves the app can actually run on real data — only that
+      # the data landed. This drafts it and replays a fortnight of real games.
+      - name: Draft and replay it
+        env:
+          YEAR: ${{ inputs.year || '2019' }}
+        run: |
+          docker run --rm -v real-data:/data \
+            -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
+            -e RETRO_SCHEDULER=0 \
+            --entrypoint python fantasy-lockout \
+            -m scripts.seed_demo --teams 10 --humans 3 --weeks 2

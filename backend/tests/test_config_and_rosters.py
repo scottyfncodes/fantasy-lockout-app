@@ -176,3 +176,44 @@ def test_bracket_shrinks_when_the_league_is_smaller_than_the_playoff_field(conn)
     leagues.start_from_lobby(conn, row, rng=random.Random(2))
     stored = leagues.league_config(leagues.require_league(conn, created["id"]))
     assert stored.team_count == 4 and stored.playoff_teams == 4
+
+
+# ---------------------------------------------------------------------------
+# a season the IL feed could not reach
+# ---------------------------------------------------------------------------
+
+def test_a_missing_il_feed_excludes_a_season_by_default(conn, cfg):
+    """The IL feed is a different site; losing it must not pass unnoticed."""
+    from app.pipeline import build as build_mod, synthetic
+
+    data = synthetic.generate_season(2016, seed=4)
+    data.il_stints = []
+    down = {"ok": False, "reason": "prosportstransactions unreachable: HTTP 403"}
+
+    strict = build_mod.assess(data, cfg, down)
+    assert not strict["eligible"]
+    assert "IL data" in strict["reason"]
+    assert strict["warnings"] == []
+
+
+def test_allowing_a_missing_il_feed_keeps_the_season_playable_and_says_so(conn, cfg):
+    from app.pipeline import build as build_mod, synthetic
+
+    data = synthetic.generate_season(2016, seed=4)
+    data.il_stints = []
+    down = {"ok": False, "reason": "prosportstransactions unreachable: HTTP 403"}
+
+    lenient = build_mod.assess(data, cfg, down, allow_missing_il=True)
+    assert lenient["eligible"], "real baseball should not be refused over a transaction log"
+    assert lenient["reason"] is None
+    assert lenient["no_il_data"], "the app has to be able to tell managers"
+    assert any("IL data" in w for w in lenient["warnings"])
+
+
+def test_a_reachable_il_feed_is_never_flagged(conn, cfg):
+    from app.pipeline import build as build_mod, synthetic
+
+    data = synthetic.generate_season(2016, seed=4)
+    assert data.il_stints, "the generator supplies stints"
+    fine = build_mod.assess(data, cfg, {"ok": True}, allow_missing_il=True)
+    assert fine["eligible"] and not fine["no_il_data"] and fine["warnings"] == []

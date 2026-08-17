@@ -65,6 +65,9 @@ export default function Rules({ code }: { code: string }) {
             pitcher. An IL slot only accepts a player the real transaction log has on the
             injured list that week; unused IL slots hold bench players.
           </p>
+          {(data.season_caveats ?? []).map((caveat: string) => (
+            <div className="banner" key={caveat}>{caveat}</div>
+          ))}
           <p className="small muted">
             FAAB budget: {cfg.faab_budget} · waivers clear after {cfg.waiver_clear_days} days ·{' '}
             {cfg.freeze_adds_in_playoffs

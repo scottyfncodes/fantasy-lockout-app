@@ -137,7 +137,29 @@ def league_state(
         state["pool_check"] = pool_depth_check(
             cfg, len(players_svc.list_players(conn, league["season_year"]))
         )
+        state["season_caveats"] = _season_caveats(conn, league["season_year"])
     return state
+
+
+def _season_caveats(conn: sqlite3.Connection, year: int) -> list[str]:
+    """What this season's data cannot do, in a manager's terms.
+
+    A season can be playable and still be missing something — most often the
+    IL feed, which lives on a different site from the box scores. Managers
+    should hear that from the app rather than work it out from nobody ever
+    getting hurt.
+    """
+    row = conn.execute("SELECT coverage_json FROM seasons WHERE year=?", (year,)).fetchone()
+    if row is None:
+        return []
+    caveats: list[str] = []
+    if json.loads(row["coverage_json"] or "{}").get("no_il_data"):
+        caveats.append(
+            "No injured-list data was available for this season, so nobody goes on "
+            "the IL: every drafted player stays startable all year, and the IL slots "
+            "act as extra bench."
+        )
+    return caveats
 
 
 @router.post("/leagues/{code}/join")

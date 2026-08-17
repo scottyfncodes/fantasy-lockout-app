@@ -85,9 +85,21 @@ def store(conn: sqlite3.Connection, data: SeasonData, eligibility: dict[str, Any
         )
 
 
-def assess(data: SeasonData, cfg: LeagueConfig, il_report: dict[str, Any] | None) -> dict[str, Any]:
-    """Decide whether this season belongs in the random draw pool."""
+def assess(
+    data: SeasonData, cfg: LeagueConfig, il_report: dict[str, Any] | None,
+    allow_missing_il: bool = False,
+) -> dict[str, Any]:
+    """Decide whether this season belongs in the random draw pool.
+
+    ``allow_missing_il`` trades a feature for a season. The IL feed is a
+    separate site from the box scores and can be unreachable while Retrosheet
+    is fine; refusing the season then means refusing real baseball over a
+    missing transaction log. With this set the season is playable and the
+    absence is recorded as a warning instead — nobody goes on the IL all year,
+    which the app has to say out loud rather than leave managers to notice.
+    """
     reasons: list[str] = []
+    warnings: list[str] = []
     fits, detail = season_fits(
         data.opening_day, data.final_game_day, cfg.total_weeks,
         cfg.regular_season_weeks, data.all_star_monday,
@@ -102,11 +114,14 @@ def assess(data: SeasonData, cfg: LeagueConfig, il_report: dict[str, Any] | None
             f"{cfg.max_teams}-team league plus a free-agent pool"
         )
     if il_report and not il_report.get("ok", True):
-        reasons.append(f"IL data: {il_report.get('reason')}")
+        target = warnings if allow_missing_il else reasons
+        target.append(f"IL data: {il_report.get('reason')}")
 
     return {
         "eligible": not reasons,
         "reason": "; ".join(reasons) or None,
+        "warnings": warnings,
+        "no_il_data": bool(warnings) and not data.il_stints,
         "calendar": detail,
         "players": len(data.players),
         "games": len(data.games),
@@ -114,7 +129,10 @@ def assess(data: SeasonData, cfg: LeagueConfig, il_report: dict[str, Any] | None
     }
 
 
-def build_season(year: int, source: str, cfg: LeagueConfig, seed: int | None = None) -> tuple[SeasonData, dict, dict]:
+def build_season(
+    year: int, source: str, cfg: LeagueConfig, seed: int | None = None,
+    allow_missing_il: bool = False,
+) -> tuple[SeasonData, dict, dict]:
     il_report: dict[str, Any] | None = None
     if source == "synthetic":
         data = synthetic.generate_season(year, seed=seed)
@@ -130,10 +148,14 @@ def build_season(year: int, source: str, cfg: LeagueConfig, seed: int | None = N
 
     if not data.il_stints and source == "synthetic":
         pass  # generator always supplies stints
-    eligibility = assess(data, cfg, il_report)
+    eligibility = assess(data, cfg, il_report, allow_missing_il=allow_missing_il)
     cov = coverage.report(data.source)
     if il_report:
         cov["il_report"] = il_report
+    # Carried in coverage_json so the app can tell managers what this season
+    # does not have, the same way it tells them which stats a source misses.
+    cov["no_il_data"] = eligibility["no_il_data"]
+    cov["warnings"] = eligibility["warnings"]
     return data, eligibility, cov
 
 
@@ -153,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--coverage", action="store_true", help="print the source coverage matrix")
     ap.add_argument("--preflight", action="store_true", help="check the real sources' availability")
+    ap.add_argument(
+        "--allow-missing-il", action="store_true",
+        help="keep a season playable when the IL feed is unreachable; nobody "
+             "will go on the injured list and the app will say so",
+    )
     args = ap.parse_args(argv)
 
     if args.coverage:
@@ -175,11 +202,16 @@ def main(argv: list[str] | None = None) -> int:
     with db.closing_conn(args.db) as conn:
         for year in years:
             print(f"[{year}] building from {args.source} ...", flush=True)
-            data, eligibility, cov = build_season(year, args.source, cfg, seed=args.seed)
+            data, eligibility, cov = build_season(
+                year, args.source, cfg, seed=args.seed,
+                allow_missing_il=args.allow_missing_il,
+            )
             store(conn, data, eligibility, cov)
             flag = "eligible" if eligibility["eligible"] else f"EXCLUDED ({eligibility['reason']})"
             print(f"[{year}] {eligibility['players']} players, {eligibility['games']} games, "
                   f"{eligibility['il_stints']} IL stints — {flag}")
+            for warning in eligibility["warnings"]:
+                print(f"[{year}] playable, but: {warning}")
             if cov.get("needs_attention"):
                 print(f"[{year}] stats needing attention: {', '.join(cov['needs_attention'])}")
     return 0
