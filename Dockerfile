@@ -11,6 +11,30 @@ COPY frontend/ ./
 RUN npm run build
 
 
+# Chadwick's cwdaily turns Retrosheet event files into daily player lines. It is
+# the difference between drafting real players from a real season and drafting
+# the synthetic generator's invented ones, and it is not packaged for Debian —
+# so it gets built from source here rather than being a thing you install by
+# hand on a server you do not shell into.
+FROM debian:bookworm-slim AS chadwick
+ARG CHADWICK_VERSION=0.10.0
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        autoconf automake libtool make gcc g++ ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl -fsSL \
+      "https://github.com/chadwickbureau/chadwick/archive/refs/tags/v${CHADWICK_VERSION}.tar.gz" \
+      -o chadwick.tar.gz \
+    && tar -xzf chadwick.tar.gz --strip-components=1 \
+    && ./configure --prefix=/opt/chadwick \
+    && make -j"$(nproc)" \
+    && make install
+# Fail the build here rather than at 8pm on a night the league expected a sim.
+RUN /opt/chadwick/bin/cwdaily --help >/dev/null 2>&1 \
+    || /opt/chadwick/bin/cwdaily -h 2>&1 | head -1
+
+
 FROM python:3.11-slim
 WORKDIR /app
 
@@ -28,6 +52,11 @@ COPY backend/ backend/
 # main.py resolves the bundle at <repo root>/frontend/dist, so the built assets
 # have to land in that same shape inside the image.
 COPY --from=frontend /build/dist frontend/dist
+
+# cwdaily is invoked by name, so it has to be on PATH — the retrosheet pipeline
+# refuses to run without it rather than silently producing a hollow season.
+COPY --from=chadwick /opt/chadwick /opt/chadwick
+ENV PATH="/opt/chadwick/bin:${PATH}"
 
 COPY docker-entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint

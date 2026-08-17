@@ -64,6 +64,10 @@ jobs:
         run: |
           curl -fsS localhost:8000/api/meta/seasons | grep -q '"year":2019' \
             || { echo "::error::the entrypoint did not cache a season"; exit 1; }
+      - name: Chadwick is on PATH for the real-data pipeline
+        run: |
+          docker exec app sh -c 'command -v cwdaily' \
+            || { echo "::error::cwdaily is missing — the image can only run synthetic seasons"; exit 1; }
       - name: The same process serves the built bundle
         run: |
           curl -fsS localhost:8000/ | grep -q '<div id="root">' \

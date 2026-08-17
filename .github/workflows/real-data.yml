@@ -1,0 +1,53 @@
+name: Real season data
+
+# The Retrosheet pipeline is the only part of this app that cannot be verified
+# where it was written: retrosheet.org is unreachable from that environment, so
+# the parsing has always been code-review-grade rather than tested. Here it can
+# actually run.
+#
+# Deliberately not part of the push gate. It depends on a third party being up,
+# and a required check that goes red because someone else's web server is down
+# teaches everyone to ignore red. Run it on demand, and weekly so a format
+# change on their end surfaces before a league needs it.
+on:
+  workflow_dispatch:
+    inputs:
+      year:
+        description: Season to ingest for real
+        default: '2019'
+  schedule:
+    - cron: '17 9 * * 1'
+
+jobs:
+  ingest:
+    name: Ingest a real season end to end
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t fantasy-lockout .
+
+      - name: Preflight — is the source reachable and is Chadwick present?
+        run: |
+          docker run --rm fantasy-lockout \
+            python -m app.pipeline.build --preflight
+
+      - name: Ingest the season from Retrosheet
+        env:
+          YEAR: ${{ inputs.year || '2019' }}
+        run: |
+          docker run --rm -v real-data:/data \
+            -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
+            --entrypoint python fantasy-lockout \
+            -m app.pipeline.build --year "$YEAR" --source retrosheet
+
+      - name: Check what landed
+        env:
+          YEAR: ${{ inputs.year || '2019' }}
+        run: |
+          docker run --rm -v real-data:/data \
+            -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
+            --entrypoint python fantasy-lockout \
+            -m scripts.verify_real_season --year "$YEAR"
