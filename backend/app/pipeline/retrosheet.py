@@ -93,13 +93,29 @@ def run_cwdaily(year: int, event_dir: Path) -> list[dict[str, str]]:
     files = sorted(p.name for p in event_dir.glob(f"{year}*.EV*"))
     if not files:
         raise SourceUnavailable(f"no {year} event files found in {event_dir}")
+    # -n asks for the field-name header. Without it cwdaily emits bare data and
+    # DictReader takes the first game's values as the column names, which fails
+    # later and far away with a KeyError on a column that is really there.
     proc = subprocess.run(
-        ["cwdaily", "-q", "-y", str(year), *files],
+        ["cwdaily", "-n", "-q", "-y", str(year), *files],
         cwd=event_dir, capture_output=True, text=True, check=False,
     )
     if proc.returncode != 0:
         raise SourceUnavailable(f"cwdaily failed: {proc.stderr.strip()[:400]}")
-    return list(csv.DictReader(io.StringIO(proc.stdout)))
+
+    reader = csv.DictReader(io.StringIO(proc.stdout))
+    # Chadwick has shipped both cases over its life; normalise so either works.
+    reader.fieldnames = [(name or "").strip().upper() for name in (reader.fieldnames or [])]
+    rows = list(reader)
+    if not rows:
+        raise SourceUnavailable(f"cwdaily produced no rows for {year}")
+    if "PLAYER_ID" not in rows[0]:
+        found = ", ".join(sorted(k for k in rows[0] if k)[:12])
+        raise SourceUnavailable(
+            f"cwdaily output has no PLAYER_ID column — got: {found}. "
+            "Its output format has changed and the column mapping needs updating."
+        )
+    return rows
 
 
 def _int(row: dict[str, str], key: str) -> int:
