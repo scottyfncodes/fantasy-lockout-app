@@ -27,6 +27,9 @@ RUN curl -fsSL \
       "https://github.com/chadwickbureau/chadwick/archive/refs/tags/v${CHADWICK_VERSION}.tar.gz" \
       -o chadwick.tar.gz \
     && tar -xzf chadwick.tar.gz --strip-components=1 \
+    # A GitHub source archive is not a release tarball: it carries configure.ac
+    # but not the generated configure, so it has to be built first.
+    && autoreconf -fi \
     && ./configure --prefix=/opt/chadwick \
     && make -j"$(nproc)" \
     && make install
