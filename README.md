@@ -33,6 +33,36 @@ The Vite dev server proxies `/api` and `/ws` to the backend. For a single
 process in production, run `npm run build` and start uvicorn — FastAPI serves
 `frontend/dist` when it exists.
 
+## Deploying
+
+`render.yaml` is a Render blueprint: **New → Blueprint → this repo**. It stands
+up one Docker web service with a 1 GB disk mounted at `/data`, which is where
+the SQLite file lives — without it every deploy would wipe the draft, the
+rosters and the standings.
+
+The app is one process on one port. FastAPI serves the built React bundle
+itself, so there is no separate static host, no CORS to configure, and the
+draft-room WebSockets share the origin the pages came from. It runs with
+`--workers 1` deliberately: the draft room and mini-game hold state in the
+process, and the nightly scheduler has to fire once, not once per worker.
+
+First boot caches the season data before binding the port, because a league
+cannot be created without it — the year is drawn at random from whatever is
+cached. Ten seasons takes about a minute on a small instance; set
+`RETRO_SEASONS=2000-2019` for more years in the hat, at roughly 11 MB of disk
+and a couple of seconds each.
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `RETRO_REPLAY_DB` | `/data/replay.sqlite3` | Where league state lives — point it at the disk |
+| `RETRO_SEASONS` | `2010-2019` | Seasons cached on first boot |
+| `RETRO_SOURCE` | `synthetic` | `retrosheet` needs network access to Retrosheet |
+| `RETRO_SCHEDULER` | `1` | `0` disables the nightly sim |
+| `TZ` | `America/Chicago` | The 8:00 PM sim follows this clock |
+
+Avoid a plan that sleeps on idle: a sleeping app misses the 8:00 PM sim, and
+the replay silently stops advancing.
+
 Tests: `cd backend && python -m pytest` (≈45s; it drafts and replays a full
 season). To see it with data in it:
 
@@ -42,7 +72,7 @@ python -m scripts.ui_smoke --code <CODE> ...                  # every page in a 
 python -m scripts.balance_report --year 2019 --teams 12       # what each slot is worth
 ```
 
-`ui_smoke` walks all nine pages in headless Chromium and fails on any console
+`ui_smoke` walks all ten pages in headless Chromium and fails on any console
 error, uncaught exception or failed request — a typecheck proves the code
 compiles, not that a page renders. It needs `pip install playwright`; nothing
 else does, so it is not in `requirements.txt`. Pass `--mobile` for a phone

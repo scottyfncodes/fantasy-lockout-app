@@ -1,0 +1,31 @@
+# Render blueprint. In the Render dashboard: New → Blueprint → pick this repo.
+#
+# One service, because that is what the app is: a single Python process holding
+# the draft-room WebSockets, the nightly scheduler and the SQLite file, with
+# the built React bundle served from the same origin.
+services:
+  - type: web
+    name: fantasy-lockout
+    runtime: docker
+    plan: starter          # free tier sleeps, and a sleeping app misses the 8pm sim
+    region: ohio
+    healthCheckPath: /api/health
+    autoDeploy: true
+    disk:
+      # League state lives here. Without a disk, every deploy would wipe the
+      # draft, the rosters and the season standings. The cached seasons cost
+      # about 11 MB each, so 1 GB holds far more than a league needs.
+      name: replay-data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: RETRO_REPLAY_DB
+        value: /data/replay.sqlite3
+      # Cached on first boot, before the server binds. Ten seasons takes about
+      # a minute here; 2000-2019 is fine too if you can wait a few.
+      - key: RETRO_SEASONS
+        value: 2010-2019
+      - key: RETRO_SOURCE
+        value: synthetic
+      - key: TZ
+        value: America/Chicago
