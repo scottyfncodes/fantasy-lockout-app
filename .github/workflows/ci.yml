@@ -39,3 +39,37 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
+  docker:
+    # The deploy image is the thing a broken build hurts most — it fails on
+    # Render, in front of the league, rather than here. So build it and boot
+    # it: one season keeps it quick while still exercising the entrypoint's
+    # first-boot caching, which is what stands between a fresh disk and an app
+    # that comes up unable to create a league.
+    name: Deploy image builds and serves
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t fantasy-lockout .
+      - name: Boot it
+        run: |
+          docker run -d --name app -p 8000:8000 -e RETRO_SEASONS=2019 fantasy-lockout
+          for _ in $(seq 1 90); do
+            curl -fsS localhost:8000/api/health >/dev/null 2>&1 && break
+            sleep 2
+          done
+          curl -fsS localhost:8000/api/health
+      - name: It cached a season on first boot
+        run: |
+          curl -fsS localhost:8000/api/meta/seasons | grep -q '"year":2019' \
+            || { echo "::error::the entrypoint did not cache a season"; exit 1; }
+      - name: The same process serves the built bundle
+        run: |
+          curl -fsS localhost:8000/ | grep -q '<div id="root">' \
+            || { echo "::error::the React bundle is not being served"; exit 1; }
+          curl -fsS -o /dev/null localhost:8000/l/ABC123/day \
+            || { echo "::error::the SPA deep-link fallback is broken"; exit 1; }
+      - name: Container logs
+        if: always()
+        run: docker logs app || true
