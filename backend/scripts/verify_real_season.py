@@ -89,6 +89,7 @@ def main(argv: list[str] | None = None) -> int:
         _check_hits_add_up(conn, year)
         _check_the_two_sides_agree(conn, year, args.tolerance)
         _check_it_scores(conn, year)
+        _show_who_this_actually_is(conn, year)
 
     print(f"\n{year} ingested from {args.source}: real, complete, and scoring.")
     return 0
@@ -163,6 +164,36 @@ def _check_it_scores(conn, year: int) -> None:
     print(f"best single game scored: {best_bat:.1f} batting, {best_pit:.1f} pitching")
     if best_bat <= 0 or best_pit <= 0:
         fail("real lines produced no points — the scorer is not reading these columns")
+
+
+def _show_who_this_actually_is(conn, year: int, limit: int = 10) -> None:
+    """Print the best batters by season points, named.
+
+    Every check above could pass on well-formed nonsense. Names are the part a
+    human can check at a glance: the leaderboard of a real season should be
+    recognisable, and if it is not, something upstream is wrong in a way no
+    column sum would reveal.
+    """
+    cfg = ScoringConfig.load()
+    totals: dict[str, float] = {}
+    names: dict[str, str] = {}
+    for row in conn.execute(
+        """SELECT b.player_id, p.name, b.* FROM batting_lines b
+             JOIN players p ON p.player_id = b.player_id AND p.season = b.season
+            WHERE b.season = ?""",
+        (year,),
+    ):
+        line = dict(row)
+        pid = line["player_id"]
+        names[pid] = line["name"]
+        totals[pid] = totals.get(pid, 0.0) + score_batting(line, cfg, include_derived=False).points
+
+    best = sorted(totals.items(), key=lambda kv: -kv[1])[:limit]
+    print(f"\ntop {limit} batters of {year} by this league's scoring:")
+    for rank, (pid, points) in enumerate(best, 1):
+        print(f"  {rank:2}. {names[pid]:<24} {points:7.1f}")
+    if not best:
+        fail("no batters to rank")
 
 
 if __name__ == "__main__":  # pragma: no cover
