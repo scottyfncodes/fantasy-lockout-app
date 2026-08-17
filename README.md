@@ -68,7 +68,9 @@ scoring config?" — see [Positional value](#positional-value).
    managers. The clock is server-side (a reconnect does not reset it) and
    `draft_pick_seconds: 0` turns it off.
 5. **Season.** Every night at 8:00 PM Central the replay advances one day.
-   Points accrue Monday–Sunday; the higher weekly total wins the matchup.
+   Points accrue Monday–Sunday; the higher weekly total wins the matchup. The
+   morning after, **Last Night** shows what your starters did, what the bench
+   did instead, and which way the week's matchup moved.
 6. **Playoffs.** Weeks 19–22: quarterfinals, semifinals, then a two-week final
    decided on combined points.
 
@@ -166,6 +168,14 @@ league has. Three rules, all enforced in code:
    on waivers before they clear, and rosters frozen once the playoffs start.
    No same-day pickups, no drop-and-re-add to dodge a rival's bid, no
    visibility into other bids.
+
+The **Last Night** page is the one place hindsight is deliberately shown: it
+tells you what your benched players scored on a day that has already been
+replayed. That is the hindsight every fantasy manager gets and every rival can
+see. It is bounded — only replayed dates, never a future one — and a player is
+kept off a bench he was not yet on, using `acquired_week`. A player since
+dropped simply does not appear, which is the honest limit of a roster table
+that stores the present; the page says so when you look at an older day.
 
 What this does *not* do is erase a manager's memory of the season. The rules
 page says so plainly. Rosters freeze once the playoffs begin, which removes the
@@ -334,7 +344,8 @@ backend/
   tests/                           scoring, calendar, schedule, rosters,
                                    lineups/IL, waivers, replay, bot integrity, API
 frontend/
-  src/pages/                       lobby, draft, team, waivers, standings,
-                                   matchups, player, rules, commissioner
+  src/pages/                       lobby, draft, team, last night, waivers,
+                                   standings, matchups, player, rules,
+                                   commissioner
   src/components/SpeedRound.tsx    the mini-game
 ```

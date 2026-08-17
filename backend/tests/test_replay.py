@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 
 import pytest
@@ -234,3 +235,107 @@ def test_bot_finds_a_scarce_position_outside_the_top_of_the_board(conn, league, 
     choice = bots.choose_draft_pick(conn, league, cfg, team["id"])
     assert choice is not None, "a bot must never run out of legal picks while one exists"
     assert "C" in choice["positions"].split(",")
+
+
+# ---------------------------------------------------------------------------
+# the daily recap
+# ---------------------------------------------------------------------------
+
+def test_day_recap_is_empty_before_anything_is_replayed(conn, league, cfg):
+    recap = replay.day_recap(conn, league, cfg)
+    assert recap["date"] is None and recap["dates_played"] == 0
+
+
+def test_day_recap_defaults_to_the_last_replayed_date(conn, league, cfg):
+    advance(conn, league, 3)
+    league = leagues.require_league(conn, league["id"])
+    recap = replay.day_recap(conn, league, cfg)
+    assert recap["date"] == league["last_simulated_date"]
+    assert recap["is_latest"] and recap["next"] is None
+    assert recap["prev"] is not None
+
+
+def test_day_recap_will_not_show_a_date_the_replay_has_not_reached(conn, league, cfg):
+    advance(conn, league, 2)
+    league = leagues.require_league(conn, league["id"])
+    future = dt.date.fromisoformat(league["last_simulated_date"]) + dt.timedelta(days=1)
+    with pytest.raises(LookupError):
+        replay.day_recap(conn, league, cfg, future)
+
+
+def test_day_recap_points_reconcile_with_the_stored_scoring_lines(conn, league, cfg):
+    advance(conn, league, 4)
+    league = leagues.require_league(conn, league["id"])
+    recap = replay.day_recap(conn, league, cfg)
+    banked = conn.execute(
+        "SELECT ROUND(SUM(points), 2) pts FROM scoring_lines WHERE league_id=? AND date=?",
+        (league["id"], recap["date"]),
+    ).fetchone()["pts"] or 0.0
+    assert recap["league_points"] == pytest.approx(banked, abs=0.05)
+    assert sum(t["points"] for t in recap["teams"]) == pytest.approx(banked, abs=0.05)
+
+
+def test_day_recap_separates_the_bench_from_the_lineup(conn, league, cfg):
+    advance(conn, league, 5)
+    league = leagues.require_league(conn, league["id"])
+    recap = replay.day_recap(conn, league, cfg)
+    for team in recap["teams"]:
+        started = {p["player_id"] for p in team["started"]}
+        benched = {p["player_id"] for p in team["bench"]}
+        assert not started & benched, "a player cannot both start and sit"
+        assert all(p["slot"] not in ("BENCH", "IL") for p in team["started"])
+        assert all(p["slot"] in ("BENCH", "IL") for p in team["bench"])
+    # Bench points are never banked: the matchup totals only count starters.
+    assert recap["league_points"] == pytest.approx(
+        sum(sum(p["points"] for p in t["started"]) for t in recap["teams"]), abs=0.05)
+
+
+def test_day_recap_shows_the_day_inside_the_running_week(conn, league, cfg):
+    advance(conn, league, 4)
+    league = leagues.require_league(conn, league["id"])
+    recap = replay.day_recap(conn, league, cfg)
+    assert recap["matchups"], "a replayed day always sits inside a scheduled week"
+    for m in recap["matchups"]:
+        # One day is part of the week, so the day's points cannot exceed the week's.
+        assert m["home_day"] <= m["home_week"] + 0.01
+        assert m["away_day"] <= m["away_week"] + 0.01
+
+
+def test_day_recap_walks_backwards_through_replayed_days(conn, league, cfg):
+    advance(conn, league, 6)
+    league = leagues.require_league(conn, league["id"])
+    seen, cursor = [], replay.day_recap(conn, league, cfg)
+    while cursor["prev"]:
+        seen.append(cursor["date"])
+        cursor = replay.day_recap(conn, league, cfg, dt.date.fromisoformat(cursor["prev"]))
+    seen.append(cursor["date"])
+    assert seen == sorted(seen, reverse=True)
+    assert len(seen) == cursor["dates_played"]
+
+
+def test_a_player_acquired_later_does_not_appear_on_an_earlier_bench(conn, league, cfg):
+    """Waiver pickups must not be retro-fitted onto a bench they were not on."""
+    advance(conn, league, 3)
+    league = leagues.require_league(conn, league["id"])
+    team = leagues.teams(conn, league["id"])[0]
+    late = conn.execute(
+        "SELECT player_id FROM rosters WHERE league_id=? AND team_id=? LIMIT 1",
+        (league["id"], team["id"]),
+    ).fetchone()["player_id"]
+    conn.execute(
+        "UPDATE rosters SET acquired_week=? WHERE league_id=? AND player_id=?",
+        (99, league["id"], late),
+    )
+    recap = replay.day_recap(conn, league, cfg)
+    block = next(t for t in recap["teams"] if t["team_id"] == team["id"])
+    assert late not in {p["player_id"] for p in block["bench"]}
+
+
+def test_day_recap_numbers_the_day_within_the_replay(conn, league, cfg):
+    advance(conn, league, 4)
+    league = leagues.require_league(conn, league["id"])
+    latest = replay.day_recap(conn, league, cfg)
+    assert latest["day_number"] == latest["dates_played"] == 4
+    first = replay.day_recap(conn, league, cfg, dt.date.fromisoformat(
+        timeline.week(conn, league["season_year"], cfg, 1).start.isoformat()))
+    assert first["day_number"] == 1 and first["prev"] is None

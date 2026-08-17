@@ -24,7 +24,7 @@ import sqlite3
 from typing import Any
 
 from ..config import LeagueConfig
-from ..scoring import score_batting, score_pitching
+from ..scoring import score_batting, score_day, score_pitching
 from . import bots, leagues, lineups, schedule as schedule_svc, standings, timeline, waivers
 
 ACTIVE_EXCLUDED = {lineups.BENCH, lineups.IL_SLOT}
@@ -335,3 +335,169 @@ def week_recap(
             ]
         ],
     }
+
+
+# ---------------------------------------------------------------------------
+# last night
+# ---------------------------------------------------------------------------
+
+def replayed_dates(
+    conn: sqlite3.Connection, league: dict[str, Any], cfg: LeagueConfig
+) -> list[str]:
+    """Every date the replay has actually played, oldest first.
+
+    Built from the fantasy calendar rather than from ``scoring_lines`` so a day
+    on which nobody scored is still a day you can look at — an empty Monday is
+    a real result, not a missing one.
+    """
+    if not league["season_year"]:
+        return []
+    through = dt.date.fromisoformat(timeline.as_of_date(conn, league, cfg))
+    out: list[str] = []
+    for w in timeline.calendar(conn, league["season_year"], cfg):
+        day = w.start
+        while day <= w.end and day <= through:
+            out.append(day.isoformat())
+            day += dt.timedelta(days=1)
+    return out
+
+
+def day_recap(
+    conn: sqlite3.Connection, league: dict[str, Any], cfg: LeagueConfig,
+    day: dt.date | None = None,
+) -> dict[str, Any]:
+    """One replayed date, from every manager's point of view.
+
+    The league simulates a day a night, so this is the view most managers open
+    first: what my starters did, what the bench did instead, and which way the
+    week's matchup moved because of it.
+    """
+    dates = replayed_dates(conn, league, cfg)
+    if not dates:
+        return {"date": None, "dates_played": 0, "teams": [], "matchups": [],
+                "top_performers": [], "bonuses": []}
+
+    iso = day.isoformat() if day else dates[-1]
+    if iso not in dates:
+        raise LookupError(f"{iso} has not been replayed yet")
+    index = dates.index(iso)
+    season = league["season_year"]
+    week_obj = timeline.week_containing(conn, season, cfg, dt.date.fromisoformat(iso))
+    week = week_obj.week if week_obj else 0
+    teams = leagues.teams(conn, league["id"])
+    names = {t["id"]: t["name"] for t in teams}
+
+    started: dict[str, list[dict[str, Any]]] = {}
+    bonuses: list[dict[str, Any]] = []
+    performers: list[dict[str, Any]] = []
+    for r in conn.execute(
+        """SELECT s.team_id, s.player_id, s.slot, s.points, s.breakdown_json,
+                  p.name, p.positions, p.mlb_team
+             FROM scoring_lines s
+             JOIN players p ON p.player_id = s.player_id AND p.season = ?
+            WHERE s.league_id = ? AND s.date = ?
+            ORDER BY s.points DESC""",
+        (season, league["id"], iso),
+    ):
+        breakdown = json.loads(r["breakdown_json"])
+        entry = {"player_id": r["player_id"], "name": r["name"], "positions": r["positions"],
+                 "mlb_team": r["mlb_team"], "slot": r["slot"], "points": round(r["points"], 2),
+                 "breakdown": breakdown}
+        started.setdefault(r["team_id"], []).append(entry)
+        performers.append({**entry, "team": names.get(r["team_id"])})
+        for key, label in (("CYC", "hit for the cycle"), ("SLAM", "hit a grand slam")):
+            if key in breakdown:
+                bonuses.append({"team": names.get(r["team_id"]), "player": r["name"],
+                                "bonus": key, "label": label, "points": breakdown[key]})
+
+    bench = _bench_day(conn, league, cfg, iso, week)
+
+    day_points = {tid: round(sum(e["points"] for e in rows), 2) for tid, rows in started.items()}
+    return {
+        "date": iso,
+        "week": week,
+        "week_label": week_obj.label if week_obj else None,
+        "prev": dates[index - 1] if index > 0 else None,
+        "next": dates[index + 1] if index + 1 < len(dates) else None,
+        "is_latest": index == len(dates) - 1,
+        "day_number": index + 1,
+        "dates_played": len(dates),
+        "active_slots": sum(cfg.active_slots.values()),
+        "league_points": round(sum(day_points.values()), 2),
+        "matchups": _day_matchups(conn, league, week, day_points, names),
+        "teams": sorted(
+            [{"team_id": t["id"], "name": t["name"], "is_bot": bool(t["is_bot"]),
+              "points": day_points.get(t["id"], 0.0),
+              "started": started.get(t["id"], []),
+              "bench": bench.get(t["id"], [])}
+             for t in teams],
+            key=lambda t: -t["points"],
+        ),
+        "top_performers": performers[:12],
+        "bonuses": sorted(bonuses, key=lambda b: -b["points"]),
+    }
+
+
+def _bench_day(
+    conn: sqlite3.Connection, league: dict[str, Any], cfg: LeagueConfig, iso: str, week: int
+) -> dict[str, list[dict[str, Any]]]:
+    """What each team's benched players did on a date nobody started them.
+
+    This is hindsight a manager is allowed — the day has already been replayed,
+    and every rival can see the same thing.  ``acquired_week`` keeps a player
+    picked up later from showing on a bench he was not on yet; a player since
+    dropped is simply absent, which is the honest limit of a roster table that
+    stores the present.
+    """
+    scoring = leagues.league_scoring(league)
+    season = league["season_year"]
+    bat = {r["player_id"]: dict(r) for r in conn.execute(
+        "SELECT * FROM batting_lines WHERE season=? AND date=?", (season, iso))}
+    pit = {r["player_id"]: dict(r) for r in conn.execute(
+        "SELECT * FROM pitching_lines WHERE season=? AND date=?", (season, iso))}
+    if not bat and not pit:
+        return {}
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for r in conn.execute(
+        """SELECT r.team_id, r.player_id, p.name, p.positions, p.mlb_team,
+                  COALESCE(l.slot, ?) AS slot
+             FROM rosters r
+             JOIN players p ON p.player_id = r.player_id AND p.season = ?
+             LEFT JOIN lineups l ON l.league_id = r.league_id AND l.team_id = r.team_id
+                                AND l.player_id = r.player_id AND l.week = ?
+            WHERE r.league_id = ? AND r.acquired_week <= ?""",
+        (lineups.BENCH, season, week, league["id"], week),
+    ):
+        if r["slot"] not in ACTIVE_EXCLUDED:
+            continue
+        b, p = bat.get(r["player_id"]), pit.get(r["player_id"])
+        if not b and not p:
+            continue
+        line = score_day(b, p, scoring)
+        if line.points == 0 and not line.breakdown:
+            continue
+        out.setdefault(r["team_id"], []).append(
+            {"player_id": r["player_id"], "name": r["name"], "positions": r["positions"],
+             "mlb_team": r["mlb_team"], "slot": r["slot"], "points": round(line.points, 2),
+             "breakdown": line.breakdown})
+    for rows in out.values():
+        rows.sort(key=lambda e: -e["points"])
+    return out
+
+
+def _day_matchups(
+    conn: sqlite3.Connection, league: dict[str, Any], week: int,
+    day_points: dict[str, float], names: dict[str, str],
+) -> list[dict[str, Any]]:
+    """The week's matchups with the day's swing broken out of the running total."""
+    return [
+        {"slot": m["slot"], "stage": m["stage"], "complete": bool(m["complete"]),
+         "home_team_id": m["home_team_id"], "home_name": names.get(m["home_team_id"]),
+         "home_day": day_points.get(m["home_team_id"], 0.0), "home_week": m["home_points"],
+         "away_team_id": m["away_team_id"], "away_name": names.get(m["away_team_id"]),
+         "away_day": day_points.get(m["away_team_id"], 0.0), "away_week": m["away_points"]}
+        for m in conn.execute(
+            "SELECT * FROM matchups WHERE league_id=? AND week=? ORDER BY slot",
+            (league["id"], week))
+    ]

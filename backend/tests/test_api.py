@@ -406,3 +406,28 @@ def test_the_clock_can_be_switched_off(client):
         state = ws.receive_json()
     assert state["pick_seconds"] == 0
     assert state["seconds_remaining"] is None
+
+
+def test_the_day_endpoint_serves_the_latest_replayed_date(client, drafted, conn):
+    """The morning page: default to last night, and refuse dates not yet played."""
+    from app.services import leagues as leagues_svc, replay as replay_svc
+
+    code = drafted["code"]
+    assert client.get(f"/api/leagues/{code}/day").json()["date"] is None
+
+    league = leagues_svc.require_league(conn, conn.execute(
+        "SELECT id FROM leagues LIMIT 1").fetchone()["id"])
+    cfg = leagues_svc.league_config(league)
+    for _ in range(3):
+        replay_svc.advance_day(conn, leagues_svc.require_league(conn, league["id"]), cfg)
+    conn.commit()
+
+    body = client.get(f"/api/leagues/{code}/day").json()
+    assert body["is_latest"] and body["dates_played"] == 3
+    assert any(t["team_id"] == drafted["team_id"] for t in body["teams"])
+
+    earlier = client.get(f"/api/leagues/{code}/day?date={body['prev']}").json()
+    assert earlier["date"] == body["prev"] and earlier["next"] == body["date"]
+
+    assert client.get(f"/api/leagues/{code}/day?date=2099-05-05").status_code == 400
+    assert client.get(f"/api/leagues/{code}/day?date=not-a-date").status_code == 400

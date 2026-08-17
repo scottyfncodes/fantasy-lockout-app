@@ -41,6 +41,7 @@ def main(argv: list[str] | None = None) -> int:
         ("home", "/"),
         ("lobby", f"/l/{args.code}"),
         ("team", f"/l/{args.code}/team"),
+        ("last-night", f"/l/{args.code}/day"),
         ("matchups", f"/l/{args.code}/matchups"),
         ("standings", f"/l/{args.code}/standings"),
         ("waivers", f"/l/{args.code}/waivers"),

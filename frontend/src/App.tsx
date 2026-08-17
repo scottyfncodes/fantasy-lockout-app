@@ -6,6 +6,7 @@ import Team from './pages/Team';
 import Waivers from './pages/Waivers';
 import Standings from './pages/Standings';
 import Matchups from './pages/Matchups';
+import LastNight from './pages/LastNight';
 import PlayerPage from './pages/PlayerPage';
 import Rules from './pages/Rules';
 import Commissioner from './pages/Commissioner';
@@ -21,6 +22,7 @@ const ROUTES: [string, (p: Record<string, string>) => JSX.Element][] = [
   ['/l/:code/waivers', (p) => <Waivers code={p.code} />],
   ['/l/:code/standings', (p) => <Standings code={p.code} />],
   ['/l/:code/matchups', (p) => <Matchups code={p.code} />],
+  ['/l/:code/day', (p) => <LastNight code={p.code} />],
   ['/l/:code/players/:playerId', (p) => <PlayerPage code={p.code} playerId={p.playerId} />],
   ['/l/:code/rules', (p) => <Rules code={p.code} />],
   ['/l/:code/commissioner', (p) => <Commissioner code={p.code} />],

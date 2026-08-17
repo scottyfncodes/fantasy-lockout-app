@@ -5,6 +5,7 @@ import { useApi } from '../lib/hooks';
 const TABS = [
   ['', 'Lobby'],
   ['/team', 'My Team'],
+  ['/day', 'Last Night'],
   ['/matchups', 'Matchups'],
   ['/standings', 'Standings'],
   ['/waivers', 'Waivers'],

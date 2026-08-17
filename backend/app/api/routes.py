@@ -6,6 +6,7 @@ lineups, waivers, standings, recaps, player pages and commissioner controls.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import sqlite3
 from typing import Any
@@ -433,6 +434,24 @@ def recap(
     target = week or max(1, (league["current_week"] or 1))
     try:
         return replay_svc.week_recap(conn, league, cfg, target)
+    except LookupError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@router.get("/leagues/{code}/day")
+def day_recap(
+    date: str | None = None,
+    league: dict = Depends(get_league),
+    cfg: LeagueConfig = Depends(get_config),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, Any]:
+    """One replayed day. Defaults to the most recent one — last night's games."""
+    try:
+        target = dt.date.fromisoformat(date) if date else None
+    except ValueError as exc:
+        raise HTTPException(400, "date must be YYYY-MM-DD") from exc
+    try:
+        return replay_svc.day_recap(conn, league, cfg, target)
     except LookupError as exc:
         raise HTTPException(400, str(exc)) from exc
 
