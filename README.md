@@ -14,7 +14,7 @@ being played today.
 
 ```bash
 # 1. backend
-cd retro-replay/backend
+cd backend
 pip install -r requirements.txt
 
 # 2. cache some seasons (see "Data sources" — synthetic works offline)
@@ -24,7 +24,7 @@ python -m app.pipeline.build --years 2000-2019 --source synthetic
 uvicorn app.main:app --reload            # http://localhost:8000
 
 # 4. frontend (separate terminal)
-cd retro-replay/frontend
+cd frontend
 npm install
 npm run dev                              # http://localhost:5173
 ```
