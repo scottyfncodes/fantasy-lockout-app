@@ -20,6 +20,7 @@ from .. import db as db_mod
 from ..config import ConfigError, LeagueConfig, pool_depth_check
 from ..pipeline import build as build_mod, coverage as coverage_mod
 from ..scoring import ScoringConfig
+from ..ws import hub
 from ..services import (
     draft as draft_svc,
     il as il_svc,
@@ -194,6 +195,25 @@ def _season_caveats(conn: sqlite3.Connection, year: int) -> list[str]:
             "act as extra bench."
         )
     return caveats
+
+
+@router.delete("/leagues/{code}")
+def delete_league(
+    confirm: str = Query(..., description="the league code, typed back"),
+    league: dict = Depends(require_commissioner),
+    conn: sqlite3.Connection = Depends(get_conn),
+) -> dict[str, Any]:
+    """Delete a league permanently. Commissioner only, and not by accident.
+
+    Requiring the code to be typed back is the whole safety mechanism: there is
+    no undo, no soft delete and no backup, and a draft plus a replayed season
+    is hours of other people's evenings.
+    """
+    if confirm != league["code"]:
+        raise HTTPException(400, "type the league code to confirm")
+    hub.cancel(f"draftbot:{league['id']}")
+    removed = leagues_svc.delete_league(conn, league["id"])
+    return {"deleted": league["code"], "removed": removed}
 
 
 @router.post("/leagues/{code}/join")

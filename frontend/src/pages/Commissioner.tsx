@@ -1,9 +1,30 @@
 import { useState } from 'react';
-import { api } from '../lib/api';
+import { api, tokens } from '../lib/api';
 import { useApi } from '../lib/hooks';
+import { useRouter } from '../lib/router';
 import { ErrorBanner, Loading } from '../components/common';
 
 export default function Commissioner({ code }: { code: string }) {
+  const { navigate } = useRouter();
+  const [confirmCode, setConfirmCode] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function destroyLeague() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.del(`/api/leagues/${code}?confirm=${encodeURIComponent(confirmCode)}`, code);
+      // The tokens are worthless now and would otherwise keep this league on
+      // the front page as a dead link.
+      tokens.forget(code);
+      navigate('/');
+    } catch (e: any) {
+      setDeleteError(e.message);
+      setDeleting(false);
+    }
+  }
+
   const { data, error, reload } = useApi<any>(`/api/leagues/${code}`, code);
   const { data: tx, reload: reloadTx } = useApi<any>(`/api/leagues/${code}/transactions?limit=40`, code);
   const [msg, setMsg] = useState<string | null>(null);
@@ -192,6 +213,33 @@ export default function Commissioner({ code }: { code: string }) {
             </tbody>
           </table>
         </div>
+      </div>
+
+      <div className="card tight">
+        <h3>Delete this league</h3>
+        <p className="small muted">
+          Removes the draft, every roster, every lineup and the whole replayed
+          season for all {' '}managers — permanently, with no undo and no backup.
+          The cached seasons themselves are untouched, so other leagues playing
+          the same year carry on.
+        </p>
+        <div className="row" style={{ marginTop: '.5rem' }}>
+          <input
+            value={confirmCode}
+            onChange={(e) => setConfirmCode(e.target.value.toUpperCase())}
+            placeholder={`Type ${code} to confirm`}
+            aria-label="Type the league code to confirm deletion"
+            style={{ flex: 1 }}
+          />
+          <button
+            className="danger"
+            disabled={confirmCode !== code || deleting}
+            onClick={destroyLeague}
+          >
+            {deleting ? 'Deleting…' : 'Delete league'}
+          </button>
+        </div>
+        <ErrorBanner message={deleteError} />
       </div>
     </>
   );

@@ -483,3 +483,41 @@ def test_a_failed_season_start_does_not_freeze_the_draft_room(client, monkeypatc
                     ws.send_json({"type": "force_pick"})
             msg = ws.receive_json()
         assert saw_error, "a room whose season failed to start was never told"
+
+
+def test_deleting_a_league_removes_it_and_spares_the_season_data(client, drafted, conn):
+    """The season cache is shared by every league and costs half an hour to
+    rebuild; a league deleting it would be a catastrophe, not a tidy-up."""
+    code = drafted["code"]
+    season_rows = conn.execute("SELECT COUNT(*) n FROM players").fetchone()["n"]
+    lines_before = conn.execute("SELECT COUNT(*) n FROM batting_lines").fetchone()["n"]
+
+    res = client.request(
+        "DELETE", f"/api/leagues/{code}?confirm={code}",
+        headers={"X-Commissioner-Token": drafted["commissioner_token"]},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["removed"]["teams"] > 0
+
+    assert client.get(f"/api/leagues/{code}").status_code == 404
+    for table in ("teams", "rosters", "lineups", "matchups", "scoring_lines", "draft_picks"):
+        left = conn.execute(f"SELECT COUNT(*) n FROM {table}").fetchone()["n"]
+        assert left == 0, f"{table} still holds rows from a deleted league"
+
+    assert conn.execute("SELECT COUNT(*) n FROM players").fetchone()["n"] == season_rows
+    assert conn.execute("SELECT COUNT(*) n FROM batting_lines").fetchone()["n"] == lines_before
+
+
+def test_deleting_a_league_needs_the_commissioner_and_the_code(client, drafted):
+    code = drafted["code"]
+    commish = {"X-Commissioner-Token": drafted["commissioner_token"]}
+
+    assert client.request("DELETE", f"/api/leagues/{code}?confirm={code}").status_code == 403
+    assert client.request(
+        "DELETE", f"/api/leagues/{code}?confirm={code}", headers=hdr(drafted),
+    ).status_code == 403, "a manager must not be able to delete the league"
+    assert client.request(
+        "DELETE", f"/api/leagues/{code}?confirm=WRONG", headers=commish,
+    ).status_code == 400, "a mistyped confirmation must not delete anything"
+
+    assert client.get(f"/api/leagues/{code}").status_code == 200, "still there"

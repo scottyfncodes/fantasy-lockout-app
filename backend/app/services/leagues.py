@@ -14,6 +14,7 @@ import secrets
 import sqlite3
 from typing import Any
 
+from .. import db
 from ..config import LeagueConfig
 from ..scoring import ScoringConfig
 
@@ -272,3 +273,34 @@ def log(conn: sqlite3.Connection, league_id: str, week: int, kind: str,
         (league_id, week, dt.datetime.utcnow().isoformat(timespec="seconds"),
          kind, team_id, player_id, detail),
     )
+
+
+def delete_league(conn: sqlite3.Connection, league_id: str) -> dict[str, int]:
+    """Remove a league and everything that belongs to it.
+
+    Every league-scoped table cascades from ``leagues``, and the season data —
+    players, games, box scores, IL stints — deliberately does not: it is shared
+    by every league replaying that year, and cost twenty-five minutes to cache.
+    Deleting a league must never touch it.
+
+    Returns what was removed, so the app can say so rather than going quiet.
+    """
+    counts = {
+        "teams": conn.execute(
+            "SELECT COUNT(*) n FROM teams WHERE league_id=?", (league_id,)).fetchone()["n"],
+        "roster_spots": conn.execute(
+            "SELECT COUNT(*) n FROM rosters WHERE league_id=?", (league_id,)).fetchone()["n"],
+        "scoring_lines": conn.execute(
+            "SELECT COUNT(*) n FROM scoring_lines WHERE league_id=?",
+            (league_id,)).fetchone()["n"],
+    }
+    with db.transaction(conn):
+        # Belt and braces: the cascade needs PRAGMA foreign_keys, which is set
+        # on every connection here, but a league surviving its own deletion
+        # because a pragma slipped is not a failure worth risking.
+        for table in ("draft_picks", "minigame_scores", "lineup_locks", "lineups",
+                      "matchups", "scoring_lines", "waiver_bids", "waiver_wire",
+                      "transactions", "rosters", "teams"):
+            conn.execute(f"DELETE FROM {table} WHERE league_id = ?", (league_id,))
+        conn.execute("DELETE FROM leagues WHERE id = ?", (league_id,))
+    return counts
