@@ -36,7 +36,7 @@ process in production, run `npm run build` and start uvicorn — FastAPI serves
 ## Deploying
 
 `render.yaml` is a Render blueprint: **New → Blueprint → this repo**. It stands
-up one Docker web service with a 1 GB disk mounted at `/data`, which is where
+up one Docker web service with a 5 GB disk mounted at `/data`, which is where
 the SQLite file lives — without it every deploy would wipe the draft, the
 rosters and the standings.
 
@@ -46,12 +46,17 @@ draft-room WebSockets share the origin the pages came from. It runs with
 `--workers 1` deliberately: the draft room and mini-game hold state in the
 process, and the nightly scheduler has to fire once, not once per worker.
 
-First boot caches the season data before binding the port, because a league
-cannot be created without it — the year is drawn at random from whatever is
-cached. Real seasons cost about 90 seconds each, so the default four-year
-range means the first deploy sits for roughly six minutes looking like it has
-hung. It has not, and it only happens once: the disk keeps the data across
-redeploys. Narrow `RETRO_SEASONS` to a single year to come up faster.
+The server comes up straight away and the season cache fills behind it. That
+matters because a league cannot be created without at least one cached season,
+and seventeen of them take about twenty-five minutes: blocking the port for
+that would show nothing but 502, indistinguishable from a broken deploy. The
+home page polls `/api/meta/warmup` and shows how far along it is, leagues can
+be created as soon as the first season lands, and the disk keeps everything
+across redeploys so it only happens once.
+
+A marker file separates "still caching" from "stopped partway", so a run that
+dies halfway says which seasons are missing instead of leaving the bar stuck.
+A redeploy retries exactly those.
 
 The injury feed is a different site from the box scores and refuses some
 hosts. `RETRO_ALLOW_MISSING_IL=1` keeps a season playable when it is blocked,
@@ -62,7 +67,7 @@ season gets its real injuries. Set it to `0` to demand the feed instead.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `RETRO_REPLAY_DB` | `/data/replay.sqlite3` | Where league state lives — point it at the disk |
-| `RETRO_SEASONS` | `2016-2019` | Seasons cached on first boot |
+| `RETRO_SEASONS` | `2001-2017` | Seasons cached, and the only years a league can draw |
 | `RETRO_SOURCE` | `retrosheet` | Real players. `synthetic` for the offline generator |
 | `RETRO_ALLOW_MISSING_IL` | `1` | Keep a season playable when the injury feed is blocked |
 | `RETRO_SCHEDULER` | `1` | `0` disables the nightly sim |
@@ -70,6 +75,26 @@ season gets its real injuries. Set it to `0` to demand the feed instead.
 
 Avoid a plan that sleeps on idle: a sleeping app misses the 8:00 PM sim, and
 the replay silently stops advancing.
+
+### How many leagues it holds
+
+Measured on the deployed shape, per league:
+
+| | Cost | At 100 leagues |
+| --- | --- | --- |
+| An ordinary night's replay | 39 ms | ~4 seconds |
+| A Monday, with waivers and the weekly rollover | 574 ms | ~1 minute |
+| A full drafted and replayed season | ~6 MB of disk | ~600 MB |
+| A draft, in server time | 5.3 s | — |
+
+Disk is the only real ceiling, and it moves in a straight line with `sizeGB`.
+The nightly job is sequential and nowhere near being a constraint; a draft
+costs seconds of CPU spread over however long the room takes.
+
+The untested case is many drafts running *simultaneously* — a dozen live
+WebSocket rooms at once is a memory question rather than a CPU one, and it
+has not been measured. Staggering draft nights avoids the only pressure
+point worth worrying about.
 
 Tests: `cd backend && python -m pytest` (≈45s; it drafts and replays a full
 season). To see it with data in it:

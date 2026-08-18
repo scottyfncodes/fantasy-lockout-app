@@ -13,11 +13,17 @@ services:
     autoDeploy: true
     disk:
       # League state lives here. Without a disk, every deploy would wipe the
-      # draft, the rosters and the season standings. The cached seasons cost
-      # about 11 MB each, so 1 GB holds far more than a league needs.
+      # draft, the rosters and the season standings.
+      #
+      # Sized for about 100 leagues. Measured: a league costs roughly 6 MB for
+      # a full replayed season, and the shared season cache about 11 MB a year
+      # — so 100 leagues over seventeen seasons is around 800 MB, which is too
+      # close to 1 GB to be comfortable. Disk is the only thing that actually
+      # limits how many leagues run at once; raising this raises the ceiling
+      # in a straight line.
       name: replay-data
       mountPath: /data
-      sizeGB: 1
+      sizeGB: 5
     envVars:
       - key: RETRO_REPLAY_DB
         value: /data/replay.sqlite3
