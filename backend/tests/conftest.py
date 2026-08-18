@@ -30,7 +30,13 @@ def template_db(tmp_path_factory) -> Path:
     """
     path = tmp_path_factory.mktemp("template") / "template.sqlite3"
     db.init_db(path)
-    cfg = LeagueConfig.load().merged({"team_count": 8, "min_teams": 8})
+    # Pin the draw to the one season this fixture generates. Seasons are now
+    # fetched when drawn, so an unpinned league would draw some other year and
+    # find an empty player pool — which is the real behaviour, not a bug.
+    cfg = LeagueConfig.load().merged({
+        "team_count": 8, "min_teams": 8,
+        "eligible_year_min": TEST_YEAR, "eligible_year_max": TEST_YEAR,
+    })
     data = synthetic.generate_season(TEST_YEAR, seed=99)
 
     with db.closing_conn(path) as conn:
@@ -73,7 +79,10 @@ def conn(db_path):
 
 @pytest.fixture
 def cfg() -> LeagueConfig:
-    return LeagueConfig.load().merged({"team_count": 8, "min_teams": 8})
+    return LeagueConfig.load().merged({
+        "team_count": 8, "min_teams": 8,
+        "eligible_year_min": TEST_YEAR, "eligible_year_max": TEST_YEAR,
+    })
 
 
 @pytest.fixture

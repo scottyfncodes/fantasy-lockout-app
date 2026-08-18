@@ -30,9 +30,9 @@
   "_freeze_note": "Rosters freeze when the playoffs begin \u2014 an add at that point is pure memory-sniping. freeze_adds_final_weeks additionally freezes the last N weeks of the regular season (0 = open).",
   "freeze_adds_in_playoffs": true,
   "freeze_adds_final_weeks": 0,
-  "eligible_year_min": 2000,
-  "eligible_year_max": null,
-  "_eligible_year_max_note": "null => last completed season (current year - 1).",
+  "eligible_year_min": 2001,
+  "eligible_year_max": 2017,
+  "_eligible_year_max_note": "The span the injury export covers. A season outside it would replay without injuries, so the draw is held to years that have them. null => last completed season (current year - 1).",
   "excluded_years": [
     2020
   ],

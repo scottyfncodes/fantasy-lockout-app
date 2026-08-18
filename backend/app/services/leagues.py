@@ -196,10 +196,18 @@ def fill_bots(conn: sqlite3.Connection, league: dict[str, Any]) -> list[dict[str
 
 
 def eligible_years(conn: sqlite3.Connection, cfg: LeagueConfig) -> list[int]:
-    """Cached seasons that passed the pipeline's eligibility check."""
-    allowed = set(cfg.eligible_years())
-    rows = conn.execute("SELECT year FROM seasons WHERE eligible = 1 ORDER BY year").fetchall()
-    return [r["year"] for r in rows if r["year"] in allowed]
+    """Every year a league may draw.
+
+    Not "every year already cached": seasons are fetched when one is drawn, so
+    requiring a cache first would mean a deployment could only offer the years
+    it happened to have warmed. What is excluded is years already *proved*
+    unusable — a season the pipeline ingested and rejected, for a calendar that
+    does not fit or a player pool too thin to draft from.
+    """
+    rejected = {
+        r["year"] for r in conn.execute("SELECT year FROM seasons WHERE eligible = 0")
+    }
+    return [y for y in cfg.eligible_years() if y not in rejected]
 
 
 def draw_season(
@@ -210,8 +218,8 @@ def draw_season(
     years = eligible_years(conn, cfg)
     if not years:
         raise LeagueError(
-            "no eligible seasons are cached — run "
-            "`python -m app.pipeline.build --years 2000-2019` first"
+            "no seasons are available to draw — every year in the configured "
+            "range has been rejected by the ingest"
         )
     year = (rng or random.SystemRandom()).choice(years)
     conn.execute("UPDATE leagues SET season_year = ? WHERE id = ?", (year, league["id"]))
@@ -261,6 +269,9 @@ def start_from_lobby(
     cfg = commit_final_size(conn, league)
     year = draw_season(conn, league, rng)
     set_phase(conn, league["id"], "year_reveal")
+    # Caching the drawn season is the caller's job, not this function's: it
+    # spawns a thread against the process-wide database, which a service
+    # taking an explicit connection has no business doing.
     return {"bots_added": added, "season_year": year,
             "team_count": cfg.team_count, "playoff_teams": cfg.playoff_teams}
 

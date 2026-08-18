@@ -46,13 +46,22 @@ draft-room WebSockets share the origin the pages came from. It runs with
 `--workers 1` deliberately: the draft room and mini-game hold state in the
 process, and the nightly scheduler has to fire once, not once per worker.
 
-The server comes up straight away and the season cache fills behind it. That
-matters because a league cannot be created without at least one cached season,
-and seventeen of them take about twenty-five minutes: blocking the port for
-that would show nothing but 502, indistinguishable from a broken deploy. The
-home page polls `/api/meta/warmup` and shows how far along it is, leagues can
-be created as soon as the first season lands, and the disk keeps everything
-across redeploys so it only happens once.
+**Seasons are fetched when a league draws one**, not stockpiled in advance.
+The first league to land on 2011 waits about ninety seconds while the reveal
+screen shows it happening; every league after that gets 2011 at once, because
+the cache is shared by everyone replaying that year. Most of a stockpile would
+be seasons nobody drew.
+
+Which years a league may draw is `eligible_year_min` / `eligible_year_max` in
+the league config — held to the span the injury export covers, so no league can
+land on a year that would replay without injuries. `RETRO_SEASONS` is a
+separate, smaller thing: what to warm at boot so the first league of the
+evening does not wait. The server comes up straight away either way and the
+home page shows that warm-up filling in.
+
+Ingesting rewrites a season wholesale, so two leagues drawing the same uncached
+year at the same moment would race. Only one fetch per year ever runs; the
+second league waits on the first.
 
 A marker file separates "still caching" from "stopped partway", so a run that
 dies halfway says which seasons are missing instead of leaving the bar stuck.
@@ -67,7 +76,7 @@ season gets its real injuries. Set it to `0` to demand the feed instead.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `RETRO_REPLAY_DB` | `/data/replay.sqlite3` | Where league state lives — point it at the disk |
-| `RETRO_SEASONS` | `2001-2017` | Seasons cached, and the only years a league can draw |
+| `RETRO_SEASONS` | `2016-2017` | Warmed at boot. Which years a league may *draw* is league config |
 | `RETRO_SOURCE` | `retrosheet` | Real players. `synthetic` for the offline generator |
 | `RETRO_ALLOW_MISSING_IL` | `1` | Keep a season playable when the injury feed is blocked |
 | `RETRO_SCHEDULER` | `1` | `0` disables the nightly sim |

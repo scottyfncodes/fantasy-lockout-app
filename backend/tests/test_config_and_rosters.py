@@ -71,8 +71,13 @@ def test_pool_depth_check_flags_a_thin_season():
 
 
 def test_eligible_years_exclude_2020():
-    years = LeagueConfig.load().merged({"eligible_year_max": 2021}).eligible_years()
-    assert 2020 not in years and 2019 in years and min(years) == 2000
+    """2020 was 60 games; replaying it against a 22-week calendar is nonsense."""
+    base = LeagueConfig.load()
+    years = base.merged({"eligible_year_max": 2021}).eligible_years()
+    assert 2020 not in years and 2019 in years
+    # Against the configured floor rather than a literal, so retuning the
+    # range does not fail a test about the 2020 exclusion.
+    assert min(years) == base.eligible_year_min
 
 
 # ---------------------------------------------------------------------------

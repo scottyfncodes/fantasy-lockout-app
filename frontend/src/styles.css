@@ -182,3 +182,14 @@ tr:last-child td { border-bottom: none; }
   height: 100%; border-radius: 999px; background: var(--accent);
   transition: width .6s ease;
 }
+
+/* Fetching a season: no percentage to show, so it paces rather than pretends. */
+.progress-fill.indeterminate {
+  width: 40%;
+  animation: slide 1.6s ease-in-out infinite;
+}
+@keyframes slide {
+  0% { margin-left: 0; }
+  50% { margin-left: 60%; }
+  100% { margin-left: 0; }
+}

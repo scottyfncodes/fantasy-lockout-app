@@ -24,9 +24,15 @@ def client(db_path, monkeypatch):
         yield c
 
 
+from tests.conftest import TEST_YEAR
+
 TINY_ROSTER = {
     "team_count": 8,
     "min_teams": 8,
+    # Seasons are fetched when drawn, so an unpinned league draws a year the
+    # fixture never generated and then waits for it forever.
+    "eligible_year_min": TEST_YEAR,
+    "eligible_year_max": TEST_YEAR,
     # A two-man roster keeps the live-draft test to 16 picks; every other rule
     # (snake order, eligibility, feasibility) behaves identically.
     "active_slots": {"C": 1, "P": 1},

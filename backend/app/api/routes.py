@@ -25,6 +25,7 @@ from ..services import (
     draft as draft_svc,
     il as il_svc,
     leagues as leagues_svc,
+    season_cache,
     lineups as lineups_svc,
     players as players_svc,
     replay as replay_svc,
@@ -166,6 +167,7 @@ def league_state(
 ) -> dict[str, Any]:
     state = leagues_svc.lobby_state(conn, league)
     state["config"] = cfg.to_dict()
+    state["season"] = season_cache.status(conn, league["season_year"])
     state["scoring"] = leagues_svc.league_scoring(league).to_dict()
     if league["season_year"]:
         state["timeline"] = timeline.describe(conn, league, cfg)
@@ -247,6 +249,10 @@ def start_league(
     """Close the lobby: bots fill empty seats, then the season year is drawn."""
     try:
         result = leagues_svc.start_from_lobby(conn, league)
+        # Start fetching the drawn season straight away. The reveal is the one
+        # moment a league expects to wait, and a year someone has drawn before
+        # is already there — so most of the time this returns at once.
+        season_cache.ensure(result["season_year"])
     except leagues_svc.LeagueError as exc:
         raise HTTPException(400, str(exc)) from exc
     league = leagues_svc.require_league(conn, league["id"])

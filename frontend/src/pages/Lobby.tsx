@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, tokens } from '../lib/api';
-import { useApi, useSocket } from '../lib/hooks';
+import { useApi, useInterval, useSocket } from '../lib/hooks';
 import { useRouter } from '../lib/router';
 import { ErrorBanner, Loading } from '../components/common';
 import SpeedRound from '../components/SpeedRound';
@@ -21,6 +21,7 @@ export default function Lobby({ code }: { code: string }) {
 
   const { state: wsState, send } = useSocket(code, 'lobby', (m) => {
     if (m.type === 'lobby_state') setLobby(m);
+    else if (m.type === 'lobby_error') setMsg(m.message);
     else if (m.type === 'lobby_countdown') setCountdown(m.remaining);
     else if (m.type === 'minigame_state') setMinigame(m);
     else if (m.type === 'draft_order') setOrder(m.order);
@@ -36,6 +37,10 @@ export default function Lobby({ code }: { code: string }) {
       reload();
     }
   }, [phase, reload]);
+
+  // The fetch happens off the socket, so the reveal screen asks for itself
+  // until the season is in.
+  useInterval(reload, view?.season_year && view?.season && !view.season.ready ? 4000 : null);
 
   useEffect(() => {
     if (view?.season_year) {
@@ -192,6 +197,27 @@ export default function Lobby({ code }: { code: string }) {
           {(view.season_caveats ?? []).map((caveat: string) => (
             <div className="banner" key={caveat}>{caveat}</div>
           ))}
+          {view.season && !view.season.ready ? (
+            <div className={view.season.state === 'failed' ? 'banner error' : 'banner info'}>
+              {view.season.state === 'failed' || view.season.state === 'unusable' ? (
+                <>
+                  <strong>{view.season.year} could not be loaded</strong> —{' '}
+                  {view.season.error ?? 'the ingest failed'}. The commissioner can
+                  delete this league and start another to draw a different year.
+                </>
+              ) : (
+                <>
+                  <strong>Fetching the {view.season.year} season…</strong> Real box
+                  scores for every game that year, about ninety seconds. Nobody else
+                  will ever wait for {view.season.year} again — the next league to
+                  draw it gets it instantly. The draft opens as soon as it lands.
+                  <div className="progress" style={{ marginTop: '.5rem' }}>
+                    <div className="progress-fill indeterminate" />
+                  </div>
+                </>
+              )}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -202,8 +228,13 @@ export default function Lobby({ code }: { code: string }) {
             Every manager gets the same {view.config?.speed_round_seconds ?? 10}-second window to
             tap the ball. Most taps picks first; bots play too.
           </p>
-          <button className="primary" onClick={() => send({ type: 'start_minigame' })}>
-            Start the Speed Round
+          <button
+            className="primary"
+            disabled={!view.season?.ready}
+            title={view.season?.ready ? undefined : 'the season is still loading'}
+            onClick={() => send({ type: 'start_minigame' })}
+          >
+            {view.season?.ready ? 'Start the Speed Round' : 'Waiting for the season…'}
           </button>
         </div>
       ) : null}

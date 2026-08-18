@@ -21,6 +21,7 @@ from ..services import (
     bots,
     draft as draft_svc,
     leagues as leagues_svc,
+    season_cache,
     minigame as minigame_svc,
     replay as replay_svc,
 )
@@ -144,6 +145,11 @@ async def _lobby_countdown(league_id: str, seconds: float | None = None) -> None
                     return {}
                 with db.transaction(conn):
                     result = leagues_svc.start_from_lobby(conn, league)
+                # Start fetching the drawn season straight away. The reveal is
+                # the one moment a league expects to wait, and a year someone
+                # has drawn before is already there, so this usually returns
+                # at once.
+                season_cache.ensure(result["season_year"])
                 league = leagues_svc.require_league(conn, league_id)
                 return {**result, "state": leagues_svc.lobby_state(conn, league)}
 
@@ -160,6 +166,18 @@ async def _start_minigame(league_id: str) -> None:
         with db.closing_conn() as conn:
             league = leagues_svc.require_league(conn, league_id)
             cfg = leagues_svc.league_config(league)
+            # A season is fetched when it is drawn, so a commissioner quick off
+            # the mark can reach here before it has landed. Drafting then would
+            # mean drafting from an empty player pool.
+            season = season_cache.status(conn, league["season_year"])
+            if not season["ready"]:
+                raise LookupError(
+                    f"the {season['year']} season is still loading — "
+                    "the draft can start as soon as it is in"
+                    if season["state"] in ("pending", "loading")
+                    else f"the {season['year']} season could not be loaded: "
+                         f"{season.get('error') or season['state']}"
+                )
             leagues_svc.set_phase(conn, league_id, "minigame")
             if cfg.draft_order_mode == "randomizer":
                 order = minigame_svc.randomized_order(conn, league_id)
@@ -167,7 +185,12 @@ async def _start_minigame(league_id: str) -> None:
             rnd = minigame_svc.build_round(conn, league_id, cfg.speed_round_seconds)
             return rnd, "speed_round"
 
-    prepared, mode = await run_in_threadpool(prepare)
+    try:
+        prepared, mode = await run_in_threadpool(prepare)
+    except LookupError as exc:
+        await hub.room(league_id, "lobby").broadcast(
+            {"type": "lobby_error", "message": str(exc)})
+        return
     if mode == "randomizer":
         # Open the draft room *before* announcing the order, so a manager who
         # acts on the announcement finds a draft board that already exists.
