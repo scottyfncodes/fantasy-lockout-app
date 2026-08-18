@@ -26,10 +26,12 @@ services:
       # first deploy sits for about six minutes looking like it has hung. It
       # has not. Narrow to a single year to get up faster, or widen once the
       # disk is warm; either way it only happens once.
-      # Held to the years the injury export covers, so every season the draw
-      # can land on has real injuries rather than a silent gap.
+      # The full span the injury export covers, so every season the draw can
+      # land on has real injuries. Seventeen seasons is roughly 25 minutes of
+      # caching on a fresh disk and about 190 MB — but the server comes up
+      # first now and shows progress, so it is a wait, not an outage.
       - key: RETRO_SEASONS
-        value: 2016-2017
+        value: 2001-2017
       - key: RETRO_SOURCE
         value: retrosheet
       # The injury feed is a second site and blocks some hosts. If it answers

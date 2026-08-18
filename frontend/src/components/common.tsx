@@ -49,3 +49,43 @@ export function IlBadge({ il }: { il: any }) {
     </span>
   );
 }
+
+
+/**
+ * Season-cache progress.
+ *
+ * A fresh deployment downloads and parses every configured season, which for a
+ * wide range runs to tens of minutes. Without this the app looks broken —
+ * leagues cannot be created and nothing says why.
+ */
+export function WarmupBar({ warmup }: { warmup: any }) {
+  if (!warmup || warmup.complete) return null;
+  const { percent, done, requested, remaining, stalled } = warmup;
+  return (
+    <div className={stalled ? 'banner error' : 'banner info'}>
+      <strong>
+        {stalled ? 'Season data stopped partway' : 'Getting the seasons ready'}
+      </strong>{' '}
+      — {done.length} of {requested.length} cached ({percent}%).
+      <div className="progress" style={{ marginTop: '.5rem' }}>
+        <div className="progress-fill" style={{ width: `${Math.max(2, percent)}%` }} />
+      </div>
+      <p className="small muted" style={{ marginTop: '.4rem' }}>
+        {stalled ? (
+          <>
+            {remaining.length} season{remaining.length === 1 ? '' : 's'} did not finish
+            ({remaining.slice(0, 6).join(', ')}
+            {remaining.length > 6 ? '…' : ''}). A redeploy retries the ones that are
+            missing.
+          </>
+        ) : (
+          <>
+            Each season is a full year of real box scores, about a minute and a half
+            apiece. You can leave this page — leagues can be created as soon as one
+            season is in.
+          </>
+        )}
+      </p>
+    </div>
+  );
+}

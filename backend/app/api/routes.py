@@ -8,14 +8,17 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from .. import db as db_mod
 from ..config import ConfigError, LeagueConfig, pool_depth_check
-from ..pipeline import coverage as coverage_mod
+from ..pipeline import build as build_mod, coverage as coverage_mod
 from ..scoring import ScoringConfig
 from ..services import (
     draft as draft_svc,
@@ -92,6 +95,37 @@ def stat_coverage() -> dict[str, Any]:
     return {
         "sources": {name: coverage_mod.report(name) for name in coverage_mod.SOURCES},
         "non_standard_stats": coverage_mod.NON_STANDARD_STATS,
+    }
+
+
+@router.get("/meta/warmup")
+def warmup() -> dict[str, Any]:
+    """How far along the season cache is.
+
+    A fresh disk needs every requested season downloaded and parsed, which runs
+    to tens of minutes for a wide range. That used to happen before the port
+    opened, so the only thing anyone could see was a 502 that looked identical
+    to a broken deploy. The server now comes up first and this reports the
+    progress behind it.
+    """
+    requested = build_mod.parse_years(os.environ.get("RETRO_SEASONS", "") or "")
+    with db_mod.closing_conn() as conn:
+        done = sorted(
+            r["year"] for r in conn.execute("SELECT year FROM seasons")
+            if r["year"] in set(requested)
+        )
+    marker = Path(os.environ.get("RETRO_WARMUP_MARKER", "/data/.warmup"))
+    remaining = [y for y in requested if y not in set(done)]
+    return {
+        "requested": requested,
+        "done": done,
+        "remaining": remaining,
+        "percent": round(100 * len(done) / len(requested)) if requested else 100,
+        # The marker outlives the ingest only if it died: without it, a stalled
+        # cache and a finished one look the same.
+        "running": marker.exists(),
+        "complete": not remaining,
+        "stalled": bool(remaining) and not marker.exists(),
     }
 
 

@@ -1,13 +1,20 @@
 import { useState } from 'react';
 import { api, tokens } from '../lib/api';
-import { useApi } from '../lib/hooks';
+import { useApi, useInterval } from '../lib/hooks';
 import { useRouter } from '../lib/router';
-import { ErrorBanner } from '../components/common';
+import { ErrorBanner, WarmupBar } from '../components/common';
 
 export default function Home() {
   const { navigate } = useRouter();
   const { data: defaults } = useApi<any>('/api/meta/defaults');
-  const { data: seasons } = useApi<any>('/api/meta/seasons');
+  const { data: seasons, reload: reloadSeasons } = useApi<any>('/api/meta/seasons');
+  const { data: warmup, reload: reloadWarmup } = useApi<any>('/api/meta/warmup');
+  // Caching a wide range of seasons runs for tens of minutes, so the page keeps
+  // itself current rather than asking anyone to sit there reloading.
+  useInterval(() => {
+    reloadWarmup();
+    reloadSeasons();
+  }, warmup && !warmup.complete ? 5000 : null);
   const [name, setName] = useState('Lockout League');
   const [teamCount, setTeamCount] = useState(12);
   const [joinCode, setJoinCode] = useState('');
@@ -36,6 +43,7 @@ export default function Home() {
 
   return (
     <div style={{ paddingTop: '2rem' }}>
+      <WarmupBar warmup={warmup} />
       <h1>Retro Season Replay</h1>
       <p className="muted">
         Draft a real MLB season that already happened and replay it day by day. Points come

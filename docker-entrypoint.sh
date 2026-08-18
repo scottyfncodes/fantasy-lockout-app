@@ -56,27 +56,32 @@ print(",".join(str(y) for y in todo))
 PLAN
 )
 
+: "${RETRO_WARMUP_MARKER:=/data/.warmup}"
+export RETRO_WARMUP_MARKER
+rm -f "$RETRO_WARMUP_MARKER"
+
 if [ -n "$missing" ]; then
     echo "seasons to cache: ${missing} (${RETRO_SOURCE:-synthetic})"
     [ "$RETRO_ALLOW_MISSING_IL" = "0" ] || lenient="--allow-missing-il"
+    # Caching seventeen seasons takes about twenty-five minutes, and blocking
+    # the port for it means the only thing anyone sees is 502 with no way to
+    # tell a slow first boot from a broken one. So the server comes up first
+    # and the cache fills behind it: the app can then say how far along it is.
+    # The marker is how it tells "still working" from "stopped early".
+    printf '%s' "$missing" > "$RETRO_WARMUP_MARKER"
     # Deliberately not fatal. A failed ingest used to kill the container under
     # set -e, so the host restarted it, so it failed again — a crash loop whose
     # only symptom is 502 Bad Gateway, with the actual reason buried in a log
     # nobody thinks to open. Booting anyway means the app can be reached and
     # say what went wrong, which is worth more than refusing to start.
-    if ! python -m app.pipeline.build --years "$missing" \
-            --source "${RETRO_SOURCE:-synthetic}" $lenient $il_file; then
-        echo "WARNING: could not cache ${missing} from ${RETRO_SOURCE:-synthetic}."
-        echo "WARNING: starting anyway; /api/health reports what is cached."
-        echo "WARNING: set RETRO_SOURCE=synthetic to come up without the network."
-    fi
-else
-    echo "all requested seasons already cached in ${RETRO_REPLAY_DB}"
-fi
-
-# Years cached under an older setting stay on the disk and keep turning up in
-# the random draw, so the configured range is enforced on every boot.
-python - <<'PRUNE'
+    (
+        if ! python -m app.pipeline.build --years "$missing" \
+                --source "${RETRO_SOURCE:-synthetic}" $lenient $il_file; then
+            echo "WARNING: could not cache ${missing} from ${RETRO_SOURCE:-synthetic}."
+            echo "WARNING: /api/health reports what is cached."
+            echo "WARNING: set RETRO_SOURCE=synthetic to come up without the network."
+        fi
+        python - <<'PRUNE'
 import os
 from app import db
 from app.pipeline.build import parse_years, prune_to
@@ -84,6 +89,20 @@ with db.closing_conn() as conn:
     for year, reason in prune_to(conn, parse_years(os.environ["RETRO_SEASONS"])):
         print(f"[{year}] dropped from the draw — {reason}")
 PRUNE
+        rm -f "$RETRO_WARMUP_MARKER"
+        echo "season cache complete"
+    ) &
+else
+    echo "all requested seasons already cached in ${RETRO_REPLAY_DB}"
+    python - <<'PRUNE'
+import os
+from app import db
+from app.pipeline.build import parse_years, prune_to
+with db.closing_conn() as conn:
+    for year, reason in prune_to(conn, parse_years(os.environ["RETRO_SEASONS"])):
+        print(f"[{year}] dropped from the draw — {reason}")
+PRUNE
+fi
 
 # One worker on purpose: the draft room and mini-game keep their state in this
 # process, and the nightly scheduler must fire once, not once per worker.
