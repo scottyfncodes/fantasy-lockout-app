@@ -8,6 +8,7 @@ else uses the REST API in ``routes.py``.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sqlite3
 import time
 from typing import Any
@@ -259,6 +260,9 @@ async def draft_socket(
             elif kind == "force_pick" and is_commissioner:
                 await _force_pick(league_id)
             elif kind == "refresh":
+                # Also restart the bot loop: it stands down when it finds no
+                # legal pick, and without this the only cure is a reconnect.
+                hub.spawn(f"draftbot:{league_id}", _bot_pick_loop(league_id))
                 await websocket.send_json(await run_in_threadpool(_draft_state, league_id))
     except WebSocketDisconnect:
         pass
@@ -316,10 +320,29 @@ async def _handle_pick(league_id: str, team_id: str, player_id: str | None, auto
 async def _push_state(league_id: str) -> None:
     state = await run_in_threadpool(_draft_state, league_id)
     await hub.room(league_id, "draft").broadcast(state)
-    if state["progress"]["complete"]:
+    if not state["progress"]["complete"]:
+        return
+
+    # Starting the season builds the schedule and locks week one, and anything
+    # that goes wrong in there used to escape through this coroutine, tear down
+    # the socket that happened to make the last pick, and leave the room frozen
+    # on a full board with nothing said. The draft is over either way; the
+    # room deserves to be told which way.
+    try:
         await run_in_threadpool(_finish_draft, league_id)
-        await hub.room(league_id, "draft").broadcast({"type": "draft_complete"})
-        await hub.room(league_id, "lobby").broadcast({"type": "phase", "phase": "season"})
+    except Exception as exc:  # noqa: BLE001 - the room must hear about any of them
+        logging.exception("starting the season failed for league %s", league_id)
+        await hub.room(league_id, "draft").broadcast({
+            "type": "draft_error",
+            "message": (
+                f"Every pick is in, but the season could not start: {exc}. "
+                "The draft is safe — the commissioner can retry from the "
+                "commissioner page."
+            ),
+        })
+        return
+    await hub.room(league_id, "draft").broadcast({"type": "draft_complete"})
+    await hub.room(league_id, "lobby").broadcast({"type": "phase", "phase": "season"})
 
 
 def _finish_draft(league_id: str) -> None:

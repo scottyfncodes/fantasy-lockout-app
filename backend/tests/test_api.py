@@ -431,3 +431,55 @@ def test_the_day_endpoint_serves_the_latest_replayed_date(client, drafted, conn)
 
     assert client.get(f"/api/leagues/{code}/day?date=2099-05-05").status_code == 400
     assert client.get(f"/api/leagues/{code}/day?date=not-a-date").status_code == 400
+
+
+def test_a_failed_season_start_does_not_freeze_the_draft_room(client, monkeypatch):
+    """The board fills, the season fails to start, and the room must be told.
+
+    This escaped as an exception through the socket that happened to make the
+    last pick: the connection died, no draft_complete ever arrived, and the
+    room sat on a full board with nothing on screen explaining it.
+    """
+    from app.api import live
+    from app.services import replay as replay_svc
+
+    def explode(*args, **kwargs):
+        raise RuntimeError("schedule could not be built")
+
+    monkeypatch.setattr(replay_svc, "start_season", explode)
+
+    league = make_league(client, {**TINY_ROSTER, "draft_order_mode": "randomizer"})
+    code = league["code"]
+    manager = join(client, code, "Sluggers")
+    client.post(f"/api/leagues/{code}/start",
+                headers={"X-Commissioner-Token": league["commissioner_token"]})
+
+    lobby_url = (f"/ws/{code}/lobby?token={manager['manager_token']}"
+                 f"&commish={league['commissioner_token']}")
+    with client.websocket_connect(lobby_url) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start_minigame"})
+        for _ in range(50):
+            if ws.receive_json()["type"] == "draft_order":
+                break
+
+    url = (f"/ws/{code}/draft?token={manager['manager_token']}"
+           f"&commish={league['commissioner_token']}")
+    with client.websocket_connect(url) as ws:
+        msg = ws.receive_json()
+        saw_error = False
+        forced: set[int] = set()
+        for _ in range(400):
+            if msg.get("type") == "draft_error":
+                assert "could not start" in msg["message"], msg["message"]
+                saw_error = True
+                break
+            if msg.get("type") == "draft_complete":
+                pytest.fail("the season start raised; completion must not be announced")
+            if msg.get("type") == "draft_state":
+                clock = msg["on_clock"]
+                if clock and not clock["is_bot"] and clock["overall"] not in forced:
+                    forced.add(clock["overall"])
+                    ws.send_json({"type": "force_pick"})
+            msg = ws.receive_json()
+        assert saw_error, "a room whose season failed to start was never told"
