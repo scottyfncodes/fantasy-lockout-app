@@ -8,11 +8,18 @@
 set -e
 
 : "${RETRO_REPLAY_DB:=/data/replay.sqlite3}"
-# Ten seasons is a real random draw and costs about a minute of first boot on a
-# small instance. Widen it with RETRO_SEASONS=2000-2019 if you want more years
-# in the hat — budget roughly 11 MB of disk and a couple of seconds per season.
-: "${RETRO_SEASONS:=2010-2019}"
+# Cached before the port opens, so this is first-boot time you wait through
+# once. Real seasons cost about 90 seconds each (download plus Chadwick);
+# synthetic ones a couple of seconds. Widen or narrow to taste — roughly
+# 11 MB of disk per season either way.
+: "${RETRO_SEASONS:=2016-2019}"
 : "${PORT:=8000}"
+# The IL feed lives on a different site from the box scores and refuses some
+# hosts. Left strict, one 403 marks every season unplayable and the app comes
+# up unable to create a league at all — a confusing dead end for a first
+# deploy. Lenient costs nothing when the feed does work: the season keeps its
+# real injuries and the flag goes unused. Set to 0 to demand the feed.
+: "${RETRO_ALLOW_MISSING_IL:=1}"
 export RETRO_REPLAY_DB
 
 cached=$(python -c "
@@ -24,7 +31,9 @@ with db.closing_conn() as conn:
 
 if [ "$cached" -eq 0 ]; then
     echo "no seasons cached — building ${RETRO_SEASONS} (${RETRO_SOURCE:-synthetic})"
-    python -m app.pipeline.build --years "$RETRO_SEASONS" --source "${RETRO_SOURCE:-synthetic}"
+    [ "$RETRO_ALLOW_MISSING_IL" = "0" ] || lenient="--allow-missing-il"
+    python -m app.pipeline.build --years "$RETRO_SEASONS" \
+        --source "${RETRO_SOURCE:-synthetic}" $lenient
 else
     echo "seasons already cached in ${RETRO_REPLAY_DB}"
 fi

@@ -48,15 +48,23 @@ process, and the nightly scheduler has to fire once, not once per worker.
 
 First boot caches the season data before binding the port, because a league
 cannot be created without it — the year is drawn at random from whatever is
-cached. Ten seasons takes about a minute on a small instance; set
-`RETRO_SEASONS=2000-2019` for more years in the hat, at roughly 11 MB of disk
-and a couple of seconds each.
+cached. Real seasons cost about 90 seconds each, so the default four-year
+range means the first deploy sits for roughly six minutes looking like it has
+hung. It has not, and it only happens once: the disk keeps the data across
+redeploys. Narrow `RETRO_SEASONS` to a single year to come up faster.
+
+The injury feed is a different site from the box scores and refuses some
+hosts. `RETRO_ALLOW_MISSING_IL=1` keeps a season playable when it is blocked,
+and the app tells managers that nobody will go on the IL rather than leaving
+them to notice. When the feed does answer, the flag changes nothing — the
+season gets its real injuries. Set it to `0` to demand the feed instead.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `RETRO_REPLAY_DB` | `/data/replay.sqlite3` | Where league state lives — point it at the disk |
-| `RETRO_SEASONS` | `2010-2019` | Seasons cached on first boot |
-| `RETRO_SOURCE` | `synthetic` | `retrosheet` needs network access to Retrosheet |
+| `RETRO_SEASONS` | `2016-2019` | Seasons cached on first boot |
+| `RETRO_SOURCE` | `retrosheet` | Real players. `synthetic` for the offline generator |
+| `RETRO_ALLOW_MISSING_IL` | `1` | Keep a season playable when the injury feed is blocked |
 | `RETRO_SCHEDULER` | `1` | `0` disables the nightly sim |
 | `TZ` | `America/Chicago` | The 8:00 PM sim follows this clock |
 
