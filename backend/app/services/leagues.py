@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import datetime as dt
 import json
+import os
 import random
 import secrets
 import sqlite3
@@ -315,3 +316,26 @@ def delete_league(conn: sqlite3.Connection, league_id: str) -> dict[str, int]:
             conn.execute(f"DELETE FROM {table} WHERE league_id = ?", (league_id,))
         conn.execute("DELETE FROM leagues WHERE id = ?", (league_id,))
     return counts
+
+
+# A cap on how many leagues one deployment carries. Leagues are cheap to make
+# and permanent once made — nothing expires — so without a ceiling a disk
+# quietly fills with abandoned drafts and the failure lands on whoever happens
+# to be mid-season when it does.
+DEFAULT_MAX_LEAGUES = 51
+
+
+def max_leagues() -> int:
+    raw = os.environ.get("RETRO_MAX_LEAGUES", "")
+    try:
+        value = int(raw)
+    except ValueError:
+        return DEFAULT_MAX_LEAGUES
+    return value if value > 0 else DEFAULT_MAX_LEAGUES
+
+
+def capacity(conn: sqlite3.Connection) -> dict[str, int | bool]:
+    used = conn.execute("SELECT COUNT(*) n FROM leagues").fetchone()["n"]
+    limit = max_leagues()
+    return {"used": used, "max": limit, "remaining": max(0, limit - used),
+            "full": used >= limit}

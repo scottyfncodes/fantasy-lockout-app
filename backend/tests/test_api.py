@@ -527,3 +527,38 @@ def test_deleting_a_league_needs_the_commissioner_and_the_code(client, drafted):
     ).status_code == 400, "a mistyped confirmation must not delete anything"
 
     assert client.get(f"/api/leagues/{code}").status_code == 200, "still there"
+
+
+def test_a_full_deployment_refuses_new_leagues_and_says_why(client, monkeypatch):
+    """Leagues never expire, so without a cap the disk fills silently and the
+    failure lands on whoever is mid-season when it does."""
+    monkeypatch.setenv("RETRO_MAX_LEAGUES", "2")
+
+    first = client.post("/api/leagues", json={"name": "One", "config": TINY_ROSTER})
+    assert first.status_code == 200, first.text
+
+    room = client.get("/api/meta/defaults").json()["capacity"]
+    assert room["max"] == 2 and room["full"] is (room["used"] >= 2)
+
+    # Fill it, then confirm the refusal explains itself rather than 500ing.
+    while not client.get("/api/meta/defaults").json()["capacity"]["full"]:
+        assert client.post(
+            "/api/leagues", json={"name": "Filler", "config": TINY_ROSTER},
+        ).status_code == 200
+
+    res = client.post("/api/leagues", json={"name": "Too many", "config": TINY_ROSTER})
+    assert res.status_code == 409
+    assert "full at 2 leagues" in res.json()["detail"]
+    assert "delete" in res.json()["detail"], "a dead end must name the way out"
+
+
+def test_deleting_a_league_frees_a_slot(client, monkeypatch):
+    monkeypatch.setenv("RETRO_MAX_LEAGUES", "1")
+    while not client.get("/api/meta/defaults").json()["capacity"]["full"]:
+        client.post("/api/leagues", json={"name": "Filler", "config": TINY_ROSTER})
+
+    league = client.post("/api/leagues", json={"name": "Nope", "config": TINY_ROSTER})
+    assert league.status_code == 409
+
+    existing = client.get("/api/meta/defaults").json()["capacity"]
+    assert existing["remaining"] == 0

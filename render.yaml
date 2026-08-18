@@ -46,5 +46,10 @@ services:
       # missing, rather than refusing to start a league at all.
       - key: RETRO_ALLOW_MISSING_IL
         value: "1"
+      # Leagues never expire, so the disk only ever grows. At roughly 6 MB a
+      # league for a full replayed season this is comfortably inside the 5 GB
+      # volume, and the refusal names the way out — delete a finished league.
+      - key: RETRO_MAX_LEAGUES
+        value: "51"
       - key: TZ
         value: America/Chicago

@@ -79,6 +79,7 @@ season gets its real injuries. Set it to `0` to demand the feed instead.
 | `RETRO_SEASONS` | `2016-2017` | Warmed at boot. Which years a league may *draw* is league config |
 | `RETRO_SOURCE` | `retrosheet` | Real players. `synthetic` for the offline generator |
 | `RETRO_ALLOW_MISSING_IL` | `1` | Keep a season playable when the injury feed is blocked |
+| `RETRO_MAX_LEAGUES` | `51` | Refuses new leagues past this, naming deletion as the way out |
 | `RETRO_SCHEDULER` | `1` | `0` disables the nightly sim |
 | `TZ` | `America/Chicago` | The 8:00 PM sim follows this clock |
 
@@ -96,7 +97,10 @@ Measured on the deployed shape, per league:
 | A full drafted and replayed season | ~6 MB of disk | ~600 MB |
 | A draft, in server time | 5.3 s | — |
 
-Disk is the only real ceiling, and it moves in a straight line with `sizeGB`.
+`RETRO_MAX_LEAGUES` caps how many exist at once — leagues never expire, so
+without a ceiling the disk fills quietly and the failure lands on whoever
+happens to be mid-season when it does. Disk is the only real ceiling behind
+that, and it moves in a straight line with `sizeGB`.
 The nightly job is sequential and nowhere near being a constraint; a draft
 costs seconds of CPU spread over however long the room takes.
 

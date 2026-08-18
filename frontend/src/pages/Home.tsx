@@ -22,6 +22,7 @@ export default function Home() {
   const [busy, setBusy] = useState(false);
 
   const eligible = (seasons?.seasons ?? []).filter((s: any) => s.eligible);
+  const room = defaults?.capacity;
   const discrepancy = defaults?.config?.roster_discrepancy;
 
   async function create() {
@@ -44,6 +45,13 @@ export default function Home() {
   return (
     <div style={{ paddingTop: '2rem' }}>
       <WarmupBar warmup={warmup} />
+      {room?.full ? (
+        <div className="banner error">
+          <strong>This server is full</strong> — {room.used} of {room.max} leagues.
+          A commissioner can delete a finished league from its commissioner page
+          to free a slot.
+        </div>
+      ) : null}
       <h1>Retro Season Replay</h1>
       <p className="muted">
         Draft a real MLB season that already happened and replay it day by day. Points come
@@ -83,7 +91,19 @@ export default function Home() {
               </select>
             </label>
           </div>
-          <button className="primary" onClick={create} disabled={busy} style={{ marginTop: '.75rem' }}>
+          {room && !room.full && room.remaining <= 5 ? (
+            <p className="small muted">
+              {room.remaining} league{room.remaining === 1 ? '' : 's'} left on this
+              server ({room.used} of {room.max} used).
+            </p>
+          ) : null}
+          <button
+            className="primary"
+            onClick={create}
+            disabled={busy || !!room?.full}
+            title={room?.full ? 'this server is full' : undefined}
+            style={{ marginTop: '.75rem' }}
+          >
             {busy ? 'Creating…' : 'Create league'}
           </button>
         </div>

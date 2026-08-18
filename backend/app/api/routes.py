@@ -141,8 +141,12 @@ def seasons(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
 
 
 @router.get("/meta/defaults")
-def defaults() -> dict[str, Any]:
-    return {"config": LeagueConfig.load().to_dict(), "scoring": ScoringConfig.load().to_dict()}
+def defaults(conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
+    return {
+        "config": LeagueConfig.load().to_dict(),
+        "scoring": ScoringConfig.load().to_dict(),
+        "capacity": leagues_svc.capacity(conn),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -151,6 +155,13 @@ def defaults() -> dict[str, Any]:
 
 @router.post("/leagues")
 def create_league(body: CreateLeague, conn: sqlite3.Connection = Depends(get_conn)) -> dict[str, Any]:
+    room = leagues_svc.capacity(conn)
+    if room["full"]:
+        raise HTTPException(
+            409,
+            f"this deployment is full at {room['max']} leagues — a commissioner "
+            "can delete a finished one from its commissioner page to make room",
+        )
     try:
         cfg = LeagueConfig.load().merged(body.config)
     except ConfigError as exc:
