@@ -58,8 +58,11 @@ def choose_draft_pick(
 
     # Feasibility only binds near the end of the draft; checking every
     # candidate on every pick would run the matching thousands of times for
-    # nothing.
-    tight = picks_left_after <= len(gaps) + 2
+    # nothing. The slack is generous on purpose: engaging late lets a bot keep
+    # taking the best bat available until the only way to fill its holes is a
+    # pick it no longer has, and a roster that arrives at the last round two
+    # slots short cannot be rescued by any single player.
+    tight = picks_left_after <= len(gaps) + 6
 
     if tight and gaps:
         # "Best available" is ranked by points, so the top of the board can be
@@ -93,6 +96,16 @@ def choose_draft_pick(
             ok, _ = rosters.draft_feasible(roster, candidate, cfg.active_slots, picks_left_after)
             if ok:
                 return candidate
+
+        # Nothing is feasible: this roster can no longer fill every active slot
+        # however the rest of the draft goes. Returning None here is what froze
+        # a live draft at pick 314 of 320 — the room simply stopped, because a
+        # bot would rather pick nothing than pick badly. It is the wrong
+        # priority. An imperfect roster costs one manager a slot; a stalled
+        # draft costs everybody the season. Take the best player left and let
+        # the lineup screen show the hole.
+        if pool:
+            return max(pool, key=lambda c: c["points"])
     return best
 
 

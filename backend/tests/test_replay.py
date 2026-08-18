@@ -7,7 +7,9 @@ import json
 
 import pytest
 
-from app.services import draft, leagues, lineups, replay, standings, timeline
+from app.services import (
+    draft, leagues, lineups, replay, rosters as rosters_svc, standings, timeline,
+)
 
 
 def advance(conn, league, days):
@@ -383,3 +385,39 @@ def test_assemble_names_players_from_the_roster_files():
     # And with no roster file, the ID stands in rather than the player vanishing.
     bare = retrosheet.assemble(2019, [dict(row)], {})
     assert bare.players[0]["name"] == "troum001"
+
+
+def test_a_boxed_in_bot_still_picks_rather_than_freezing_the_draft(conn, league, cfg):
+    """Reported live: a draft stopped dead at pick 314 of 320.
+
+    Fill a roster to one pick short entirely with pitchers and the active
+    slots for batters can never all be filled — no single player fills two
+    holes. The bot used to answer None, and the room had nothing to advance
+    to. One manager ending up short is a cost worth paying; eight managers
+    losing the season is not.
+    """
+    from app.services import bots
+
+    team = leagues.teams(conn, league["id"])[0]
+    pitchers = [r["player_id"] for r in conn.execute(
+        "SELECT player_id FROM players WHERE season=? AND is_pitcher=1 LIMIT ?",
+        (league["season_year"], cfg.roster_size - 1))]
+    assert len(pitchers) == cfg.roster_size - 1, "need a deep enough pool to box a team in"
+
+    conn.execute("DELETE FROM rosters WHERE league_id=? AND player_id IN "
+                 f"({','.join('?' * len(pitchers))})", (league["id"], *pitchers))
+    conn.execute("DELETE FROM rosters WHERE league_id=? AND team_id=?",
+                 (league["id"], team["id"]))
+    conn.executemany(
+        "INSERT INTO rosters (league_id, team_id, player_id, acquired_week, acquired_via) "
+        "VALUES (?,?,?,0,'draft')",
+        [(league["id"], team["id"], pid) for pid in pitchers],
+    )
+
+    roster = draft.team_roster(conn, league, team["id"])
+    gaps = rosters_svc.unfilled_slots(roster, cfg.active_slots)
+    assert len(gaps) > 1, f"one pick cannot fill {gaps}; that is the point"
+
+    choice = bots.choose_draft_pick(conn, league, cfg, team["id"])
+    assert choice is not None, "a bot must always pick while any player is left"
+    assert choice["player_id"] not in set(pitchers)
