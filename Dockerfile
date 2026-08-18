@@ -45,7 +45,7 @@ WORKDIR /app
 # with real timezone data keeps logs and America/Chicago arithmetic honest.
 ENV PYTHONUNBUFFERED=1 TZ=America/Chicago
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends tzdata \
+    && apt-get install -y --no-install-recommends tzdata ca-certificates curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/requirements.txt backend/requirements.txt
@@ -60,6 +60,17 @@ COPY --from=frontend /build/dist frontend/dist
 # refuses to run without it rather than silently producing a hollow season.
 COPY --from=chadwick /opt/chadwick /opt/chadwick
 ENV PATH="/opt/chadwick/bin:${PATH}"
+
+# A published export of the IL transaction log. ProSportsTransactions itself
+# refuses automated traffic from hosting providers, so the live feed is
+# unreachable from here; this is the same records, already public. Fetched at
+# build time rather than committed, so no third-party data enters this repo or
+# its history. If the fetch fails the image still builds — seasons simply come
+# up without injuries and say so.
+ARG INJURY_CSV_URL=https://raw.githubusercontent.com/robotallie/baseball-injuries/master/injuries.csv
+RUN curl -fsSL "$INJURY_CSV_URL" -o /opt/injuries.csv \
+    && head -1 /opt/injuries.csv | grep -q Relinquished \
+    || { echo "injury export unavailable; continuing without it"; rm -f /opt/injuries.csv; }
 
 COPY docker-entrypoint.sh /usr/local/bin/entrypoint
 RUN chmod +x /usr/local/bin/entrypoint

@@ -14,7 +14,7 @@ on:
     inputs:
       year:
         description: Season to ingest for real
-        default: '2019'
+        default: '2017'
   schedule:
     - cron: '17 9 * * 1'
 
@@ -44,28 +44,29 @@ jobs:
       # the full standard rather than being told to look past ineligibility.
       - name: Ingest the season from Retrosheet
         env:
-          YEAR: ${{ inputs.year || '2019' }}
+          YEAR: ${{ inputs.year || '2017' }}
         run: |
           docker run --rm -v real-data:/data \
             -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
             --entrypoint python fantasy-lockout \
-            -m app.pipeline.build --year "$YEAR" --source retrosheet --allow-missing-il
+            -m app.pipeline.build --year "$YEAR" --source retrosheet \
+              --allow-missing-il --il-file /opt/injuries.csv
 
       - name: Check what landed
         env:
-          YEAR: ${{ inputs.year || '2019' }}
+          YEAR: ${{ inputs.year || '2017' }}
         run: |
           docker run --rm -v real-data:/data \
             -e RETRO_REPLAY_DB=/data/replay.sqlite3 \
             --entrypoint python fantasy-lockout \
-            -m scripts.verify_real_season --year "$YEAR"
+            -m scripts.verify_real_season --year "$YEAR" --require-il 300
 
       # The point of all of this: a league of real players, drafted and played.
       # Nothing above proves the app can actually run on real data — only that
       # the data landed. This drafts it and replays a fortnight of real games.
       - name: Draft and replay it
         env:
-          YEAR: ${{ inputs.year || '2019' }}
+          YEAR: ${{ inputs.year || '2017' }}
         run: |
           docker run --rm -v real-data:/data \
             -e RETRO_REPLAY_DB=/data/replay.sqlite3 \

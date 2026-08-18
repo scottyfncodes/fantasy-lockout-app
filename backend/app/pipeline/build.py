@@ -25,7 +25,7 @@ from typing import Any
 from .. import db
 from ..config import LeagueConfig
 from ..season_calendar import season_fits
-from . import coverage, prosportstransactions, retrosheet, synthetic
+from . import coverage, injury_file, prosportstransactions, retrosheet, synthetic
 from .synthetic import SeasonData
 
 BATTING_COLS = ["game_id", "player_id", "season", "date", "team", "pa", "ab", "r", "h",
@@ -131,18 +131,27 @@ def assess(
 
 def build_season(
     year: int, source: str, cfg: LeagueConfig, seed: int | None = None,
-    allow_missing_il: bool = False,
+    allow_missing_il: bool = False, il_file: str | None = None,
 ) -> tuple[SeasonData, dict, dict]:
     il_report: dict[str, Any] | None = None
     if source == "synthetic":
         data = synthetic.generate_season(year, seed=seed)
     elif source == "retrosheet":
         data = retrosheet.build(year)
+        # The live feed first — it has real activation dates, which no export
+        # in circulation does. The file is the fallback, not the preference.
         try:
             stints, il_report = prosportstransactions.build(year, data.players)
             data.il_stints = stints
         except prosportstransactions.SourceUnavailable as exc:
             il_report = {"ok": False, "reason": str(exc)}
+            if il_file:
+                try:
+                    stints, il_report = injury_file.build(
+                        year, data.players, il_file, data.batting, data.pitching)
+                    data.il_stints = stints
+                except injury_file.InjuryFileUnusable as file_exc:
+                    il_report = {"ok": False, "reason": f"{exc}; and {file_exc}"}
     else:
         raise SystemExit(f"unknown source {source!r} (use synthetic or retrosheet)")
 
@@ -176,6 +185,15 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--coverage", action="store_true", help="print the source coverage matrix")
     ap.add_argument("--preflight", action="store_true", help="check the real sources' availability")
     ap.add_argument(
+        "--il-file",
+        help="CSV export of IL transactions, used when the live feed is blocked",
+    )
+    ap.add_argument(
+        "--prune", action="store_true",
+        help="mark every cached season outside --years ineligible, so the "
+             "random draw can only land on the ones you asked for",
+    )
+    ap.add_argument(
         "--allow-missing-il", action="store_true",
         help="keep a season playable when the IL feed is unreachable; nobody "
              "will go on the injured list and the app will say so",
@@ -204,7 +222,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"[{year}] building from {args.source} ...", flush=True)
             data, eligibility, cov = build_season(
                 year, args.source, cfg, seed=args.seed,
-                allow_missing_il=args.allow_missing_il,
+                allow_missing_il=args.allow_missing_il, il_file=args.il_file,
             )
             store(conn, data, eligibility, cov)
             flag = "eligible" if eligibility["eligible"] else f"EXCLUDED ({eligibility['reason']})"
@@ -214,7 +232,30 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"[{year}] playable, but: {warning}")
             if cov.get("needs_attention"):
                 print(f"[{year}] stats needing attention: {', '.join(cov['needs_attention'])}")
+
+        if args.prune:
+            for year, reason in prune_to(conn, years):
+                print(f"[{year}] dropped from the draw — {reason}")
     return 0
+
+
+def prune_to(conn: sqlite3.Connection, keep: list[int]) -> list[tuple[int, str]]:
+    """Take every cached season outside ``keep`` out of the random draw.
+
+    Seasons accumulate on a disk that outlives any one configuration, so
+    narrowing the range in config does not narrow the draw on its own: years
+    cached under a previous setting stay eligible and keep coming up.
+    """
+    reason = "not in the configured season range"
+    stale = [r["year"] for r in conn.execute(
+        "SELECT year FROM seasons WHERE eligible = 1") if r["year"] not in set(keep)]
+    with db.transaction(conn):
+        for year in stale:
+            conn.execute(
+                "UPDATE seasons SET eligible = 0, ineligible_reason = ? WHERE year = ?",
+                (reason, year),
+            )
+    return [(y, reason) for y in stale]
 
 
 if __name__ == "__main__":  # pragma: no cover

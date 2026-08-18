@@ -62,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
     # availability. When it is down, the box scores are still worth checking —
     # this separates "the parsing is correct" from "the season is playable".
     ap.add_argument("--allow-ineligible", action="store_true")
+    # Injuries are the one thing that can be wholly absent while every other
+    # check passes, because a season with no stints looks identical to one
+    # nobody got hurt in.
+    ap.add_argument("--require-il", type=int, default=0,
+                    help="fail unless at least this many IL stints landed")
     args = ap.parse_args(argv)
     year = args.year
 
@@ -86,6 +91,15 @@ def main(argv: list[str] | None = None) -> int:
 
         _check_columns(conn, year, "batting_lines", BATTING_COLUMNS, OPTIONAL_BATTING)
         _check_columns(conn, year, "pitching_lines", PITCHING_COLUMNS, ())
+        stints = conn.execute(
+            "SELECT COUNT(*) n FROM il_stints WHERE season=?", (year,)).fetchone()["n"]
+        ended = conn.execute(
+            "SELECT COUNT(*) n FROM il_stints WHERE season=? AND end_date IS NOT NULL",
+            (year,)).fetchone()["n"]
+        print(f"IL stints: {stints} ({ended} ended by a return to the box scores)")
+        if stints < args.require_il:
+            fail(f"only {stints} IL stints — expected at least {args.require_il}")
+
         _check_hits_add_up(conn, year)
         _check_the_two_sides_agree(conn, year, args.tolerance)
         _check_it_scores(conn, year)
