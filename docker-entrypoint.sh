@@ -22,15 +22,23 @@ set -e
 : "${RETRO_ALLOW_MISSING_IL:=1}"
 export RETRO_REPLAY_DB
 
-cached=$(python -c "
+# Which of the requested years are not on the disk yet. Asking "is anything
+# cached" instead let one failed year stick forever: the next boot saw a
+# non-empty cache, skipped the build, and the missing seasons never arrived.
+missing=$(python -c "
+import os
 from app import db
+from app.pipeline.build import parse_years
 db.init_db()
 with db.closing_conn() as conn:
-    print(conn.execute('SELECT COUNT(*) FROM seasons').fetchone()[0])
+    have = {r['year'] for r in conn.execute('SELECT year FROM seasons')}
+want = parse_years(os.environ.get('RETRO_SEASONS', ''))
+print(','.join(str(y) for y in want if y not in have))
 ")
 
-if [ "$cached" -eq 0 ]; then
-    echo "no seasons cached — building ${RETRO_SEASONS} (${RETRO_SOURCE:-synthetic})"
+if [ -n "$missing" ]; then
+    RETRO_SEASONS="$missing"
+    echo "seasons still to cache: ${RETRO_SEASONS} (${RETRO_SOURCE:-synthetic})"
     [ "$RETRO_ALLOW_MISSING_IL" = "0" ] || lenient="--allow-missing-il"
     # Deliberately not fatal. A failed ingest used to kill the container under
     # set -e, so the host restarted it, so it failed again — a crash loop whose
@@ -44,7 +52,7 @@ if [ "$cached" -eq 0 ]; then
         echo "WARNING: set RETRO_SOURCE=synthetic to come up without the network."
     fi
 else
-    echo "seasons already cached in ${RETRO_REPLAY_DB}"
+    echo "all requested seasons already cached in ${RETRO_REPLAY_DB}"
 fi
 
 # One worker on purpose: the draft room and mini-game keep their state in this

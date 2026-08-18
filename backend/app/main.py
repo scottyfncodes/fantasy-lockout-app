@@ -64,12 +64,19 @@ def health() -> dict[str, object]:
     try:
         with db.closing_conn() as conn:
             rows = [dict(r) for r in conn.execute(
-                "SELECT year, source, eligible FROM seasons ORDER BY year")]
+                """SELECT s.year, s.source, s.eligible,
+                          (SELECT COUNT(*) FROM il_stints i WHERE i.season = s.year) il
+                     FROM seasons s ORDER BY s.year""")]
         seasons = {
             "cached": len(rows),
             "eligible": sum(1 for r in rows if r["eligible"]),
             "years": [r["year"] for r in rows],
             "source": rows[0]["source"] if rows else None,
+            # Zero means the injury feed was unreachable when this season was
+            # cached: the season plays, but nobody ever goes on the IL. Worth
+            # answering here, because the alternative is noticing in August
+            # that nobody has been hurt all year.
+            "il_stints": {r["year"]: r["il"] for r in rows},
         }
     except Exception as exc:  # noqa: BLE001 - health must answer regardless
         seasons["error"] = f"{type(exc).__name__}: {exc}"
