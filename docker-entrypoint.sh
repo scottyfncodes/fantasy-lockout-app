@@ -32,8 +32,17 @@ with db.closing_conn() as conn:
 if [ "$cached" -eq 0 ]; then
     echo "no seasons cached — building ${RETRO_SEASONS} (${RETRO_SOURCE:-synthetic})"
     [ "$RETRO_ALLOW_MISSING_IL" = "0" ] || lenient="--allow-missing-il"
-    python -m app.pipeline.build --years "$RETRO_SEASONS" \
-        --source "${RETRO_SOURCE:-synthetic}" $lenient
+    # Deliberately not fatal. A failed ingest used to kill the container under
+    # set -e, so the host restarted it, so it failed again — a crash loop whose
+    # only symptom is 502 Bad Gateway, with the actual reason buried in a log
+    # nobody thinks to open. Booting anyway means the app can be reached and
+    # say what went wrong, which is worth more than refusing to start.
+    if ! python -m app.pipeline.build --years "$RETRO_SEASONS" \
+            --source "${RETRO_SOURCE:-synthetic}" $lenient; then
+        echo "WARNING: could not cache ${RETRO_SEASONS} from ${RETRO_SOURCE:-synthetic}."
+        echo "WARNING: starting anyway; /api/health reports what is cached."
+        echo "WARNING: set RETRO_SOURCE=synthetic to come up without the network."
+    fi
 else
     echo "seasons already cached in ${RETRO_REPLAY_DB}"
 fi

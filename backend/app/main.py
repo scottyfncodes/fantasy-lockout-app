@@ -54,10 +54,32 @@ app.include_router(live_router)
 
 @app.get("/api/health")
 def health() -> dict[str, object]:
+    """Liveness, plus enough to diagnose a deploy without reading the logs.
+
+    A season cache that failed to build is invisible until someone tries to
+    create a league and is told there are no eligible years. Reporting it here
+    turns that into one glance.
+    """
+    seasons: dict[str, object] = {"cached": 0, "eligible": 0, "years": []}
+    try:
+        with db.closing_conn() as conn:
+            rows = [dict(r) for r in conn.execute(
+                "SELECT year, source, eligible FROM seasons ORDER BY year")]
+        seasons = {
+            "cached": len(rows),
+            "eligible": sum(1 for r in rows if r["eligible"]),
+            "years": [r["year"] for r in rows],
+            "source": rows[0]["source"] if rows else None,
+        }
+    except Exception as exc:  # noqa: BLE001 - health must answer regardless
+        seasons["error"] = f"{type(exc).__name__}: {exc}"
+
     return {
         "ok": True,
         "database": str(db.db_path()),
         "next_replay_run": scheduler.next_run(),
+        "seasons": seasons,
+        "playable": bool(seasons.get("eligible")),
     }
 
 
