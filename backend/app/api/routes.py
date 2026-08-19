@@ -180,7 +180,11 @@ def league_state(
     state["config"] = cfg.to_dict()
     state["season"] = season_cache.status(conn, league["season_year"])
     state["scoring"] = leagues_svc.league_scoring(league).to_dict()
-    if league["season_year"]:
+    # Everything below reads the season's own data — its calendar, its player
+    # pool — and a drawn year is not cached yet. Asking anyway is how the
+    # reveal screen 500s during the ninety seconds it is meant to be showing
+    # progress.
+    if league["season_year"] and state["season"]["ready"]:
         state["timeline"] = timeline.describe(conn, league, cfg)
         state["pool_check"] = pool_depth_check(
             cfg, len(players_svc.list_players(conn, league["season_year"]))
@@ -268,9 +272,14 @@ def start_league(
         raise HTTPException(400, str(exc)) from exc
     league = leagues_svc.require_league(conn, league["id"])
     cfg = leagues_svc.league_config(league)
-    pool = players_svc.list_players(conn, league["season_year"])
-    result["pool_check"] = pool_depth_check(cfg, len(pool))
-    result["timeline"] = timeline.describe(conn, league, cfg)
+    # The season this just drew is very likely still downloading, and its
+    # calendar and player pool do not exist until it lands. The reveal screen
+    # polls for them; this response says only what is known now.
+    result["season"] = season_cache.status(conn, league["season_year"])
+    if result["season"]["ready"]:
+        pool = players_svc.list_players(conn, league["season_year"])
+        result["pool_check"] = pool_depth_check(cfg, len(pool))
+        result["timeline"] = timeline.describe(conn, league, cfg)
     return result
 
 
@@ -482,7 +491,7 @@ def get_standings(
     conn: sqlite3.Connection = Depends(get_conn),
 ) -> dict[str, Any]:
     data = {"standings": standings_svc.table(conn, league), "phase": league["phase"]}
-    if league["season_year"]:
+    if league["season_year"] and season_cache.is_cached(conn, league["season_year"]):
         data["timeline"] = timeline.describe(conn, league, cfg)
     if league["phase"] in ("playoffs", "complete"):
         data["bracket"] = standings_svc.bracket(conn, league, cfg)

@@ -17,6 +17,7 @@ from typing import Any
 
 from .. import db
 from ..config import LeagueConfig
+from . import season_cache
 from ..scoring import ScoringConfig
 
 PHASES = ["lobby", "year_reveal", "minigame", "draft", "season", "playoffs", "complete"]
@@ -143,6 +144,11 @@ def lobby_state(conn: sqlite3.Connection, league: dict[str, Any]) -> dict[str, A
         "code": league["code"],
         "name": league["name"],
         "season_year": league["season_year"],
+        # Carried on the live channel too, not only the REST view. The lobby
+        # page prefers whatever the socket last sent, so a field that exists on
+        # only one of them vanishes the moment the socket speaks — which left
+        # the draft button disabled for a season that had already landed.
+        "season": season_cache.status(conn, league["season_year"]),
         "teams": [
             {"id": t["id"], "name": t["name"], "is_bot": bool(t["is_bot"]),
              "locked_in": bool(t["locked_in"]), "seat": t["seat"],

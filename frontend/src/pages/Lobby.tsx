@@ -38,9 +38,16 @@ export default function Lobby({ code }: { code: string }) {
     }
   }, [phase, reload]);
 
-  // The fetch happens off the socket, so the reveal screen asks for itself
-  // until the season is in.
-  useInterval(reload, view?.season_year && view?.season && !view.season.ready ? 4000 : null);
+  // The season is fetched by a background thread with no way to push, and the
+  // page prefers whatever the socket last said — so a plain refetch would be
+  // ignored. Ask the socket to re-send instead, which carries the new status.
+  useInterval(
+    () => {
+      send({ type: 'refresh' });
+      reload();
+    },
+    view?.season_year && view?.season && !view.season.ready ? 3000 : null,
+  );
 
   useEffect(() => {
     if (view?.season_year) {
@@ -197,7 +204,7 @@ export default function Lobby({ code }: { code: string }) {
           {(view.season_caveats ?? []).map((caveat: string) => (
             <div className="banner" key={caveat}>{caveat}</div>
           ))}
-          {view.season && !view.season.ready ? (
+          {view.season && !view.season.ready && revealed ? (
             <div className={view.season.state === 'failed' ? 'banner error' : 'banner info'}>
               {view.season.state === 'failed' || view.season.state === 'unusable' ? (
                 <>
