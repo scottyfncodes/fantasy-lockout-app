@@ -193,3 +193,23 @@ tr:last-child td { border-bottom: none; }
   50% { margin-left: 60%; }
   100% { margin-left: 0; }
 }
+
+/* The Green Light pad. Big enough to hit without aiming, on a phone, in a
+   hurry — the game is reaction time, not target practice. */
+.pad {
+  width: 100%;
+  min-height: 11rem;
+  margin: 1rem 0;
+  border-radius: 1.25rem;
+  border: 2px solid var(--line);
+  background: #1a1f1c;
+  color: var(--muted);
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: -.02em;
+  transition: background .06s linear, color .06s linear, transform .06s ease;
+}
+.pad.green { background: var(--accent); color: #06210f; border-color: var(--accent); }
+.pad.flash { transform: scale(1.02); }
+.pad.done { opacity: .8; }
+.pad:active:not(:disabled) { transform: scale(.99); }

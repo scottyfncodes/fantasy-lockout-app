@@ -111,8 +111,8 @@ def test_unknown_manager_token_is_rejected(client):
     assert res.status_code == 403
 
 
-def test_speed_round_sets_the_draft_order(client):
-    league = make_league(client, {**TINY_ROSTER, "speed_round_seconds": 0.4})
+def test_the_green_light_sets_the_draft_order(client):
+    league = make_league(client, TINY_ROSTER)
     code = league["code"]
     manager = join(client, code, "Tappers")
     client.post(f"/api/leagues/{code}/start",
@@ -123,22 +123,27 @@ def test_speed_round_sets_the_draft_order(client):
         assert ws.receive_json()["type"] == "lobby_state"
         ws.send_json({"type": "start_minigame"})
 
-        order = None
-        for _ in range(400):
+        order, tapped = None, False
+        for _ in range(600):
             msg = ws.receive_json()
             if msg["type"] == "minigame_state":
-                if msg["state"] == "running":
+                # Tap only once the light is actually green — that is the game.
+                if msg["green"] and not tapped:
+                    tapped = True
                     ws.send_json({"type": "tap"})
-                assert 0 <= msg["target"]["x"] <= 1
             elif msg["type"] == "draft_order":
                 order = msg["order"]
+                ws.send_json({"type": "open_draft"})
                 break
         assert order, "the round never resolved"
 
     picks = sorted(o["pick"] for o in order)
     assert picks == list(range(1, 9))
-    scores = [o["score"] for o in order]
-    assert scores == sorted(scores, reverse=True), "highest score picks first"
+    assert order[0]["team_id"] and not order[0]["is_bot"], (
+        "the one manager who reacted must not be behind a bot"
+    )
+    bots_from = next(i for i, o in enumerate(order) if o["is_bot"])
+    assert all(o["is_bot"] for o in order[bots_from:]), "bots line up at the back"
 
     state = client.get(f"/api/leagues/{code}").json()
     assert state["phase"] == "draft"
@@ -158,6 +163,9 @@ def test_live_draft_runs_to_completion(client):
         ws.send_json({"type": "start_minigame"})
         for _ in range(50):
             if ws.receive_json()["type"] == "draft_order":
+                # The order stands until the commissioner accepts it, so the
+                # room can ask for a rerun first.
+                ws.send_json({"type": "open_draft"})
                 break
 
     draft_url = f"/ws/{code}/draft?token={manager['manager_token']}&commish={league['commissioner_token']}"
@@ -370,6 +378,9 @@ def test_an_idle_manager_does_not_stall_the_draft(client):
         ws.send_json({"type": "start_minigame"})
         for _ in range(50):
             if ws.receive_json()["type"] == "draft_order":
+                # The order stands until the commissioner accepts it, so the
+                # room can ask for a rerun first.
+                ws.send_json({"type": "open_draft"})
                 break
 
     # Connect, then never pick. The clock has to finish the draft on its own.
@@ -406,6 +417,9 @@ def test_the_clock_can_be_switched_off(client):
         ws.send_json({"type": "start_minigame"})
         for _ in range(50):
             if ws.receive_json()["type"] == "draft_order":
+                # The order stands until the commissioner accepts it, so the
+                # room can ask for a rerun first.
+                ws.send_json({"type": "open_draft"})
                 break
 
     with client.websocket_connect(f"/ws/{code}/draft?token={manager['manager_token']}") as ws:
@@ -467,6 +481,9 @@ def test_a_failed_season_start_does_not_freeze_the_draft_room(client, monkeypatc
         ws.send_json({"type": "start_minigame"})
         for _ in range(50):
             if ws.receive_json()["type"] == "draft_order":
+                # The order stands until the commissioner accepts it, so the
+                # room can ask for a rerun first.
+                ws.send_json({"type": "open_draft"})
                 break
 
     url = (f"/ws/{code}/draft?token={manager['manager_token']}"

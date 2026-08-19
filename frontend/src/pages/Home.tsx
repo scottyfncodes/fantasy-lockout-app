@@ -85,7 +85,12 @@ export default function Home() {
             <label className="field" style={{ flex: '1 1 6rem' }}>
               Teams
               <select value={teamCount} onChange={(e) => setTeamCount(Number(e.target.value))}>
-                {[8, 10, 12, 14].map((n) => (
+                {/* Every size the engine supports, odd numbers included: the
+                    schedule generator handles them with a bye rotation. */}
+                {Array.from(
+                  { length: (defaults?.config?.max_teams ?? 15) - (defaults?.config?.min_teams ?? 8) + 1 },
+                  (_, i) => (defaults?.config?.min_teams ?? 8) + i,
+                ).map((n) => (
                   <option key={n} value={n}>{n}</option>
                 ))}
               </select>

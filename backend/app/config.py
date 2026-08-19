@@ -30,7 +30,7 @@ class ConfigError(ValueError):
 class LeagueConfig:
     team_count: int = 12
     min_teams: int = 8
-    max_teams: int = 14
+    max_teams: int = 15
     lobby_timeout_seconds: int = 300
 
     active_slots: dict[str, int] = field(
@@ -56,6 +56,12 @@ class LeagueConfig:
     faab_budget: int = 100
     bots_use_waivers: bool = True
     waiver_clear_days: int = 2
+    # Real-world deadlines, not replay ones. Bids clear at midnight on these
+    # weekdays (0 = Monday) and lineups lock at noon on Monday, which is hours
+    # before the 8pm sim plays that day's games.
+    waiver_run_weekdays: tuple[int, ...] = (0, 2, 5)
+    lineup_lock_weekday: int = 0
+    lineup_lock_hour: int = 12
     # Once the bracket starts, a free-agent add is pure memory-sniping: the
     # teams still playing know exactly who is about to get hot. Rosters are
     # frozen for the playoffs.
@@ -176,8 +182,8 @@ class LeagueConfig:
                 f"team_count {self.team_count} must be between "
                 f"{self.min_teams} and {self.max_teams}"
             )
-        if self.team_count % 2 != 0:
-            raise ConfigError("team_count must be even so every team has a weekly opponent")
+        # Odd team counts are allowed: the schedule adds a phantom opponent, so
+        # one team has the week off and the bye rotates evenly.
         if self.min_teams < 2 or self.min_teams % 2:
             raise ConfigError("min_teams must be an even number >= 2")
         if any(v < 0 for v in self.active_slots.values()):

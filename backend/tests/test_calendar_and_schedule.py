@@ -106,9 +106,15 @@ def test_home_and_away_stay_balanced(n):
     assert max(home.values()) - min(home.values()) <= 4
 
 
-def test_odd_team_count_is_refused():
-    with pytest.raises(ValueError):
-        schedule_svc.round_robin_rounds(["a", "b", "c"])
+def test_an_odd_round_robin_sits_one_team_out(): 
+    """Odd leagues are supported now: the third team has the week off."""
+    rounds = schedule_svc.round_robin_rounds(["a", "b", "c"])
+    assert len(rounds) == 3, "three teams, three rounds"
+    for week in rounds:
+        assert len(week) == 1, "one game, one team resting"
+    # Over a full cycle everybody rests exactly once.
+    rests = [set("abc") - {t for pair in week for t in pair} for week in rounds]
+    assert sorted(next(iter(r)) for r in rests) == ["a", "b", "c"]
 
 
 def test_bracket_seeding_is_one_versus_eight():
@@ -130,3 +136,44 @@ def test_finals_span_two_weeks():
     cfg = LeagueConfig.load()
     final = schedule_svc.playoff_week_plan(cfg)[-1]
     assert len(final["weeks"]) == 2, "the final is decided on combined points"
+
+
+# ---------------------------------------------------------------------------
+# odd leagues
+# ---------------------------------------------------------------------------
+
+def test_an_odd_league_gets_a_rotating_bye():
+    """9 to 15 teams are allowed, so somebody has the week off."""
+    import collections
+    from app.services.schedule import regular_season
+
+    for size in (9, 11, 13, 15):
+        ids = [f"t{i}" for i in range(size)]
+        weeks = regular_season(ids, 18)
+        byes: collections.Counter = collections.Counter()
+        for week in weeks:
+            assert len(week) == (size - 1) // 2, "one team sits out each week"
+            playing = {t for pair in week for t in pair}
+            assert len(playing) == size - 1
+            for team in set(ids) - playing:
+                byes[team] += 1
+        # Evenly shared: nobody sits out twice before everybody has sat once.
+        assert max(byes.values()) - min(byes.values()) <= 1, f"{size}: {byes}"
+
+
+def test_no_phantom_opponent_leaks_into_a_schedule():
+    """The bye is an implementation device; it must never reach a matchup."""
+    from app.services.schedule import BYE, regular_season
+
+    weeks = regular_season([f"t{i}" for i in range(11)], 6)
+    for week in weeks:
+        for home, away in week:
+            assert BYE not in (home, away)
+
+
+def test_an_even_league_never_has_a_bye():
+    from app.services.schedule import regular_season
+
+    for size in (8, 10, 12, 14):
+        for week in regular_season([f"t{i}" for i in range(size)], 8):
+            assert len(week) == size // 2

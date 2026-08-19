@@ -15,7 +15,7 @@ from typing import Any
 
 from fastapi import WebSocket
 
-from .services.minigame import SpeedRound
+from .services.minigame import GreenLight
 
 
 class Room:
@@ -47,7 +47,8 @@ class Hub:
 
     def __init__(self) -> None:
         self._rooms: dict[str, Room] = {}
-        self._rounds: dict[str, SpeedRound] = {}
+        self._rounds: dict[str, GreenLight] = {}
+        self._redo: dict[str, set[str]] = {}
         self._draft_locks: dict[str, asyncio.Lock] = {}
         self._pick_deadlines: dict[str, tuple[int, float]] = {}
         self._tasks: dict[str, asyncio.Task] = {}
@@ -59,10 +60,10 @@ class Hub:
         return self._rooms[key]
 
     # ---- mini-game ----------------------------------------------------
-    def round_for(self, league_id: str) -> SpeedRound | None:
+    def round_for(self, league_id: str) -> GreenLight | None:
         return self._rounds.get(league_id)
 
-    def set_round(self, league_id: str, rnd: SpeedRound) -> None:
+    def set_round(self, league_id: str, rnd: GreenLight) -> None:
         self._rounds[league_id] = rnd
 
     def clear_round(self, league_id: str) -> None:
@@ -90,6 +91,19 @@ class Hub:
         self._pick_deadlines.pop(league_id, None)
 
     # ---- background tasks ---------------------------------------------
+    # Redo votes live with the round they are about: in memory, cleared when a
+    # new one starts. Persisting them would mean a vote surviving the thing it
+    # was voting on.
+    def set_redo_vote(self, league_id: str, team_id: str, wants: bool) -> None:
+        votes = self._redo.setdefault(league_id, set())
+        votes.add(team_id) if wants else votes.discard(team_id)
+
+    def redo_votes(self, league_id: str) -> set[str]:
+        return set(self._redo.get(league_id, set()))
+
+    def clear_redo_votes(self, league_id: str) -> None:
+        self._redo.pop(league_id, None)
+
     def spawn(self, key: str, coro) -> None:
         """Run one named background task per league, replacing any predecessor."""
         self.cancel(key)

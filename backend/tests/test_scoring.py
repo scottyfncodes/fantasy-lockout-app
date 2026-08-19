@@ -6,7 +6,6 @@ import pytest
 
 from app.scoring import (
     ScoringConfig,
-    is_cycle,
     is_quality_start,
     score_batting,
     score_day,
@@ -77,17 +76,11 @@ def test_partial_innings_are_prorated(cfg):
     assert score_pitching(pit(outs=17), cfg).points == pytest.approx(8.5)
 
 
-def test_cycle_bonus(cfg):
-    line = bat(b1=1, b2=1, b3=1, hr=1)
-    assert is_cycle(line)
-    scored = score_batting(line, cfg)
-    assert scored.breakdown["CYC"] == 50
-    assert scored.points == 1 + 2 + 3 + 4 + 50
-
-
-def test_near_cycle_is_not_a_cycle(cfg):
-    assert not is_cycle(bat(b1=2, b2=1, hr=1))
-    assert "CYC" not in score_batting(bat(b1=2, b2=1, hr=1), cfg).breakdown
+def test_a_cycle_is_worth_only_its_parts(cfg):
+    """The cycle bonus was removed; the hits still score, nothing on top."""
+    scored = score_batting(bat(b1=1, b2=1, b3=1, hr=1), cfg)
+    assert scored.points == 1 + 2 + 3 + 4
+    assert "CYC" not in scored.breakdown
 
 
 def test_grand_slam_scores_on_top_of_the_home_run(cfg):
@@ -110,9 +103,10 @@ def test_two_way_player_gets_both_halves(cfg):
 
 
 def test_summed_lines_skip_per_game_bonuses(cfg):
-    """A season total trivially contains 1B/2B/3B/HR — that is not a cycle."""
-    season = bat(b1=90, b2=30, b3=4, hr=25)
-    assert "CYC" not in score_batting(season, cfg, include_derived=False).breakdown
+    """A season total contains grand slams already; counting them again would
+    pay twice for the same swing."""
+    season = bat(b1=90, b2=30, b3=4, hr=25, slam=3)
+    assert "SLAM" not in score_batting(season, cfg, include_derived=False).breakdown
 
 
 def test_config_is_editable_without_touching_logic():

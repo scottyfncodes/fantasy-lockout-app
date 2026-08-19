@@ -1,91 +1,82 @@
-/**
- * The draft-order mini-game.
- *
- * The server owns the clock, the ball's position and the tap counts; this
- * component renders what it broadcasts and sends taps back. Everyone sees the
- * same ball in the same place at the same moment, and a client cannot report
- * its own score — only taps, which the server rate-limits.
- */
+import { useEffect, useState } from 'react';
 
+/**
+ * The Green Light.
+ *
+ * Three, two, one — then a pause nobody can predict — then green. First to tap
+ * after that picks first. Tap early and you go to the back.
+ *
+ * The pad deliberately knows nothing until the server says so: if the moment
+ * arrived in the payload ahead of time, the honest players would lose to
+ * whoever read it out of the socket.
+ */
 export default function SpeedRound({
   state,
   onTap,
-  myTeamId,
+  result,
 }: {
   state: any;
   onTap: () => void;
-  myTeamId: string;
+  result: { false_start?: boolean; reaction?: number; early_by?: number } | null;
 }) {
-  const { target, standings = [], remaining, countdown } = state;
-  const running = state.state === 'running';
+  const green = !!state?.green;
+  const [flash, setFlash] = useState(false);
+
+  useEffect(() => {
+    if (green) {
+      setFlash(true);
+      const t = window.setTimeout(() => setFlash(false), 250);
+      return () => window.clearTimeout(t);
+    }
+    return undefined;
+  }, [green]);
+
+  const done = !!result;
+  const countdown = state?.counts_down;
+
+  let label = 'Get ready…';
+  if (done && result?.false_start) label = 'Too early!';
+  else if (done) label = `${Math.round((result?.reaction ?? 0) * 1000)} ms`;
+  else if (green) label = 'TAP!';
+  else if (countdown > 0) label = String(Math.ceil(countdown));
+  else label = 'Wait for green…';
 
   return (
-    <div className="grid sidebar">
-      <div className="card tight">
-        <div className="row between">
-          <h3 style={{ margin: 0 }}>Speed Round</h3>
-          <span className="mono" style={{ fontSize: '1.4rem' }}>
-            {running ? `${remaining.toFixed(1)}s` : state.state}
+    <div className="card center">
+      <h3>Green Light</h3>
+      <p className="small muted">
+        Wait for the pad to turn green, then tap. Fastest reaction picks first —
+        tap early and you go to the back of the order.
+      </p>
+
+      <button
+        className={`pad ${green ? 'green' : ''} ${flash ? 'flash' : ''} ${done ? 'done' : ''}`}
+        onClick={() => !done && onTap()}
+        disabled={done}
+        aria-label={green ? 'Tap now' : 'Wait for green'}
+      >
+        <span className="pad-label">{label}</span>
+      </button>
+
+      {done ? (
+        <p className="small muted">
+          {result?.false_start
+            ? `You jumped ${Math.round((result.early_by ?? 0) * 1000)} ms early — back of the line.`
+            : 'In. Waiting for everyone else…'}
+        </p>
+      ) : null}
+
+      <div className="row" style={{ justifyContent: 'center', flexWrap: 'wrap' }}>
+        {(state?.taps ?? []).map((t: any) => (
+          <span
+            key={t.team_id}
+            className={`tag ${t.false_start ? 'loss' : t.done ? 'win' : ''}`}
+          >
+            {t.name}
+            {t.is_bot ? ' (bot)' : ''}
+            {t.done ? (t.false_start ? ' ✗' : ' ✓') : ' …'}
           </span>
-        </div>
-
-        <div
-          className="arena"
-          onPointerDown={(e) => {
-            // Taps anywhere register; hitting the ball is the fun part, not a
-            // hit-test the server has to adjudicate.
-            e.preventDefault();
-            if (running) onTap();
-          }}
-        >
-          {target ? (
-            <div
-              className="ball"
-              style={{
-                left: `${target.x * 100}%`,
-                top: `${target.y * 100}%`,
-                width: `${target.size * 100}%`,
-                aspectRatio: '1',
-                fontSize: `${target.size * 60}px`,
-              }}
-            >
-              ⚾
-            </div>
-          ) : null}
-
-          {state.state === 'countdown' ? (
-            <div className="arena-overlay">
-              <span className="countdown">{Math.ceil(countdown)}</span>
-            </div>
-          ) : null}
-          {state.state === 'ended' || state.state === 'finished' ? (
-            <div className="arena-overlay">Time!</div>
-          ) : null}
-          {state.state === 'waiting' ? (
-            <div className="arena-overlay">
-              <span style={{ fontSize: '1rem' }}>Waiting for the commissioner…</span>
-            </div>
-          ) : null}
-        </div>
-        <p className="small muted">Tap as fast as you can. Highest count drafts first.</p>
-      </div>
-
-      <div className="card tight">
-        <h3>Live scores</h3>
-        <table>
-          <tbody>
-            {standings.map((s: any) => (
-              <tr key={s.team_id}>
-                <td style={{ width: '1.5rem' }} className="muted mono">{s.pick}</td>
-                <td>
-                  {s.name} {s.is_bot ? <span className="tag bot">bot</span> : null}
-                  {s.team_id === myTeamId ? <span className="tag">you</span> : null}
-                </td>
-                <td className="right mono" style={{ fontWeight: 700 }}>{s.score}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        ))}
       </div>
     </div>
   );

@@ -76,11 +76,6 @@ def _get(line: Mapping[str, Any], key: str) -> int:
 # derived event detection
 # --------------------------------------------------------------------------
 
-def is_cycle(line: Mapping[str, Any]) -> bool:
-    """Single, double, triple and home run all in the same game."""
-    return all(_get(line, k) >= 1 for k in ("b1", "b2", "b3", "hr"))
-
-
 def grand_slams(line: Mapping[str, Any]) -> int:
     """Grand slams in this game.
 
@@ -136,8 +131,6 @@ def score_batting(
         slams = grand_slams(line)
         if slams:
             items["SLAM"] = slams * p.get("SLAM", 0)
-        if is_cycle(line):
-            items["CYC"] = p.get("CYC", 0)
 
     items = {k: round(v, 4) for k, v in items.items() if v}
     return ScoreLine(round(sum(items.values()), 4), items)

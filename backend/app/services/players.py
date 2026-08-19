@@ -146,7 +146,7 @@ def _count_bonuses(
     conn: sqlite3.Connection, season: int, cfg: ScoringConfig, through: str | None,
     since: str | None = None,
 ) -> dict[str, dict[str, float]]:
-    from ..scoring import is_cycle, is_quality_start
+    from ..scoring import is_quality_start
 
     clause, params = "", [season]
     if since:
@@ -164,17 +164,13 @@ def _count_bonuses(
         entry["points"] += value
 
     slam_pts = cfg.batting.get("SLAM", 0)
-    cyc_pts = cfg.batting.get("CYC", 0)
     rows = conn.execute(
-        f"SELECT player_id, b1, b2, b3, hr, slam FROM batting_lines "
-        f"WHERE season = ? {clause} AND (slam > 0 OR (b1 > 0 AND b2 > 0 AND b3 > 0 AND hr > 0))",
+        f"SELECT player_id, slam FROM batting_lines "
+        f"WHERE season = ? {clause} AND slam > 0",
         params,
     )
     for r in rows:
-        if r["slam"]:
-            add(r["player_id"], "SLAM", r["slam"] * slam_pts)
-        if is_cycle(dict(r)):
-            add(r["player_id"], "CYC", cyc_pts)
+        add(r["player_id"], "SLAM", r["slam"] * slam_pts)
 
     rows = conn.execute(
         f"SELECT player_id, gs, outs, er FROM pitching_lines "

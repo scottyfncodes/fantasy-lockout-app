@@ -1,34 +1,40 @@
-"""Draft-order mini-game: the Speed Round.
+"""Draft-order mini-game: the Green Light.
 
-Every manager gets the same fixed window (default 10 seconds) to tap a moving
-baseball as many times as they can.  Highest count picks first.
+Everyone stares at the same pad. It counts three, two, one, holds for a beat
+nobody can predict, and turns green. The order people tap after that is the
+draft order — fastest reaction picks first.
 
-This is the one part of the app besides the draft room where people act at the
-same moment, so the server is authoritative: it owns the clock, counts the
-taps, moves the target (everyone sees the same ball in the same place), and
-broadcasts the running scoreboard.  A client that lies about its own score
-cannot, because it never sends one — only taps, which are rate-limited.
+Tapping before green is a false start, and it costs you: jumpers go behind
+everyone who waited. Otherwise the winning move is to hammer the pad from the
+countdown, which is not a game.
 
-Bots tap too, at a plausible human rate, so a lobby with empty seats still
-resolves.
+The server is authoritative, as it has to be. It owns the countdown, chooses
+the green-light moment, and — crucially — timestamps arrivals itself rather
+than trusting a client's claim about its own reaction time. Nobody sends a
+score; they send a tap, and the server decides what it was worth.
 
-The commissioner can switch ``draft_order_mode`` to ``randomizer`` for the
-simpler slot-machine reveal; ``randomized_order`` implements that path.
+Bots never compete. A bot has no reaction time worth simulating and no feelings
+about picking last, so they line up at the back in a random order among
+themselves, and every human beats every bot.
 """
 
 from __future__ import annotations
 
-import math
 import random
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
-# A human can sustain roughly 8 taps/second; anything above this is discarded
-# rather than rejected outright, so a laggy burst isn't punished.
-MAX_TAPS_PER_SECOND = 12
-COUNTDOWN_SECONDS = 3
+COUNTDOWN_SECONDS = 3.0
+
+# How long after the countdown the light actually turns green. Randomised, or
+# the game becomes a stopwatch exercise rather than a reaction.
+MIN_HOLD_SECONDS = 0.8
+MAX_HOLD_SECONDS = 3.2
+
+# How long the pad stays live before anyone still asleep is counted as absent.
+REACTION_WINDOW_SECONDS = 5.0
 
 
 @dataclass
@@ -36,20 +42,16 @@ class Contestant:
     team_id: str
     name: str
     is_bot: bool
-    score: int = 0
-    tiebreak: float = 0.0
-    _bot_rate: float = 0.0
-    _bot_credited: float = 0.0
-    _tap_times: list[float] = field(default_factory=list)
+    reaction: float | None = None   # seconds after green; None = never tapped
+    jumped: float | None = None     # seconds *before* green, if they false started
 
 
 @dataclass
-class SpeedRound:
+class GreenLight:
     league_id: str
-    duration: float
     contestants: dict[str, Contestant] = field(default_factory=dict)
-    starts_at: float | None = None       # monotonic clock
-    ends_at: float | None = None
+    starts_at: float | None = None   # monotonic: when the countdown began
+    green_at: float | None = None    # monotonic: when the pad turns green
     finished: bool = False
     seed: int = 0
 
@@ -57,116 +59,110 @@ class SpeedRound:
     def start(self, now: float | None = None) -> None:
         now = now if now is not None else time.monotonic()
         rng = random.Random(self.seed)
-        self.starts_at = now + COUNTDOWN_SECONDS
-        self.ends_at = self.starts_at + self.duration
-        for c in self.contestants.values():
-            c.tiebreak = rng.random()
-            if c.is_bot:
-                c._bot_rate = rng.uniform(3.2, 6.4)
+        self.starts_at = now
+        hold = rng.uniform(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS)
+        self.green_at = now + COUNTDOWN_SECONDS + hold
 
-    @property
-    def state(self) -> str:
-        if self.finished:
-            return "finished"
-        if self.starts_at is None:
-            return "waiting"
-        now = time.monotonic()
-        if now < self.starts_at:
-            return "countdown"
-        if now < (self.ends_at or 0):
-            return "running"
-        return "ended"
-
-    def remaining(self, now: float | None = None) -> float:
+    def is_green(self, now: float | None = None) -> bool:
         now = now if now is not None else time.monotonic()
-        if self.starts_at is None:
-            return self.duration
-        if now < self.starts_at:
-            return self.duration
-        return max(0.0, (self.ends_at or 0) - now)
+        return self.green_at is not None and now >= self.green_at
 
-    def countdown(self, now: float | None = None) -> float:
+    def is_over(self, now: float | None = None) -> bool:
+        """Everyone has answered, or the window has closed."""
         now = now if now is not None else time.monotonic()
-        if self.starts_at is None:
-            return float(COUNTDOWN_SECONDS)
-        return max(0.0, self.starts_at - now)
+        if self.green_at is None:
+            return False
+        if now >= self.green_at + REACTION_WINDOW_SECONDS:
+            return True
+        return all(
+            c.reaction is not None or c.jumped is not None
+            for c in self.contestants.values() if not c.is_bot
+        )
 
     # ---- play ---------------------------------------------------------
-    def tap(self, team_id: str, now: float | None = None) -> bool:
+    def tap(self, team_id: str, now: float | None = None) -> dict[str, Any]:
+        """Record one tap. The server decides what it was worth, not the client."""
         now = now if now is not None else time.monotonic()
         c = self.contestants.get(team_id)
-        if c is None or self.state != "running":
-            return False
-        window = [t for t in c._tap_times if now - t < 1.0]
-        if len(window) >= MAX_TAPS_PER_SECOND:
-            c._tap_times = window
-            return False
-        window.append(now)
-        c._tap_times = window
-        c.score += 1
-        return True
+        if c is None or self.green_at is None:
+            return {"ok": False}
+        if c.reaction is not None or c.jumped is not None:
+            return {"ok": False, "already": True}   # one tap each, first counts
 
-    def tick_bots(self, now: float | None = None) -> None:
-        """Credit bot taps for the time that has elapsed."""
-        now = now if now is not None else time.monotonic()
-        if self.starts_at is None:
-            return
-        elapsed = max(0.0, min(now, self.ends_at or 0) - self.starts_at)
-        for c in self.contestants.values():
-            if not c.is_bot:
-                continue
-            owed = elapsed * c._bot_rate
-            gain = int(owed - c._bot_credited)
-            if gain > 0:
-                c.score += gain
-                c._bot_credited += gain
+        if now < self.green_at:
+            c.jumped = self.green_at - now
+            return {"ok": True, "false_start": True, "early_by": round(c.jumped, 3)}
+        c.reaction = now - self.green_at
+        return {"ok": True, "false_start": False, "reaction": round(c.reaction, 3)}
 
-    def target_position(self, now: float | None = None) -> dict[str, float]:
-        """Where the ball is, in 0..1 box coordinates.
-
-        Driven by the shared clock and seed so every client renders the same
-        ball in the same place — the round is genuinely simultaneous.
-        """
-        now = now if now is not None else time.monotonic()
-        t = 0.0 if self.starts_at is None else max(0.0, now - self.starts_at)
-        s = (self.seed % 997) / 997.0
-        x = 0.5 + 0.42 * math.sin(t * 1.9 + s * 6.3)
-        y = 0.5 + 0.34 * math.sin(t * 2.7 + 1.3 + s * 4.1)
-        size = 0.10 + 0.03 * math.sin(t * 3.3)
-        return {"x": round(x, 4), "y": round(y, 4), "size": round(size, 4)}
-
-    # ---- results ------------------------------------------------------
+    # ---- result -------------------------------------------------------
     def standings(self) -> list[dict[str, Any]]:
-        ordered = sorted(
-            self.contestants.values(), key=lambda c: (-c.score, -c.tiebreak, c.team_id)
-        )
-        return [
-            {"team_id": c.team_id, "name": c.name, "is_bot": c.is_bot,
-             "score": c.score, "pick": i + 1}
-            for i, c in enumerate(ordered)
-        ]
+        """Draft order: clean reactions, then jumpers, then no-shows, then bots.
 
-    def snapshot(self) -> dict[str, Any]:
+        Ranking jumpers by how early they went puts the wildest guess last,
+        which is the right incentive: a hair-trigger jump should cost more than
+        a near miss.
+        """
+        humans = [c for c in self.contestants.values() if not c.is_bot]
+        bots = [c for c in self.contestants.values() if c.is_bot]
+
+        clean = sorted((c for c in humans if c.reaction is not None),
+                       key=lambda c: c.reaction)
+        jumped = sorted((c for c in humans if c.jumped is not None),
+                        key=lambda c: c.jumped)          # least early first
+        asleep = [c for c in humans
+                  if c.reaction is None and c.jumped is None]
+        random.Random(self.seed + 1).shuffle(bots)
+
+        order: list[dict[str, Any]] = []
+        for pick, c in enumerate(clean + jumped + asleep + bots, start=1):
+            order.append({
+                "team_id": c.team_id,
+                "name": c.name,
+                "is_bot": c.is_bot,
+                "pick": pick,
+                "reaction": round(c.reaction, 3) if c.reaction is not None else None,
+                "false_start": c.jumped is not None,
+                "no_show": c.reaction is None and c.jumped is None and not c.is_bot,
+                # Milliseconds, so the scoreboard has something to show. A bot
+                # or a no-show has no time and gets none.
+                "score": int(c.reaction * 1000) if c.reaction is not None else 0,
+            })
+        return order
+
+    def state(self, now: float | None = None) -> dict[str, Any]:
+        now = now if now is not None else time.monotonic()
+        green = self.is_green(now)
         return {
             "type": "minigame_state",
-            "state": self.state,
-            "countdown": round(self.countdown(), 2),
-            "remaining": round(self.remaining(), 2),
-            "duration": self.duration,
-            "target": self.target_position(),
-            "standings": self.standings(),
+            "game": "green_light",
+            "green": green,
+            # Before green this is the countdown; clients must not be told when
+            # green arrives, or the honest ones lose to the ones reading it.
+            "counts_down": (
+                max(0.0, round(self.starts_at + COUNTDOWN_SECONDS - now, 1))
+                if self.starts_at is not None else None
+            ),
+            "finished": self.finished,
+            "taps": [
+                {"team_id": c.team_id, "name": c.name, "is_bot": c.is_bot,
+                 "done": c.reaction is not None or c.jumped is not None,
+                 "false_start": c.jumped is not None}
+                for c in self.contestants.values()
+            ],
         }
 
 
 def build_round(
-    conn: sqlite3.Connection, league_id: str, duration: float, seed: int | None = None
-) -> SpeedRound:
+    conn: sqlite3.Connection, league_id: str, duration: float = 0.0,
+    seed: int | None = None,
+) -> GreenLight:
+    """``duration`` is accepted and ignored: this game ends when people react."""
     rows = conn.execute(
         "SELECT id, name, is_bot FROM teams WHERE league_id = ? ORDER BY seat", (league_id,)
     ).fetchall()
-    rnd = SpeedRound(
+    rnd = GreenLight(
         league_id=league_id,
-        duration=duration,
         seed=seed if seed is not None else random.randrange(1_000_000),
     )
     for r in rows:
@@ -176,16 +172,15 @@ def build_round(
     return rnd
 
 
-def persist_results(conn: sqlite3.Connection, rnd: SpeedRound) -> list[dict[str, Any]]:
-    """Write scores and assign draft slots. Highest score picks first."""
+def persist_results(conn: sqlite3.Connection, rnd: GreenLight) -> list[dict[str, Any]]:
+    """Write reaction times and assign draft slots."""
     order = rnd.standings()
     conn.execute("DELETE FROM minigame_scores WHERE league_id = ?", (rnd.league_id,))
     for entry in order:
-        c = rnd.contestants[entry["team_id"]]
         conn.execute(
             "INSERT INTO minigame_scores (league_id, team_id, score, finished, tiebreak) "
             "VALUES (?,?,?,1,?)",
-            (rnd.league_id, entry["team_id"], entry["score"], c.tiebreak),
+            (rnd.league_id, entry["team_id"], entry["score"], float(entry["pick"])),
         )
         conn.execute(
             "UPDATE teams SET draft_slot = ? WHERE league_id = ? AND id = ?",
@@ -198,15 +193,18 @@ def persist_results(conn: sqlite3.Connection, rnd: SpeedRound) -> list[dict[str,
 def randomized_order(
     conn: sqlite3.Connection, league_id: str, rng: random.Random | None = None
 ) -> list[dict[str, Any]]:
-    """Fallback draft-order mode: a plain provably-fair shuffle."""
+    """Fallback draft-order mode: a plain shuffle, bots still at the back."""
     rng = rng or random.SystemRandom()
-    rows = conn.execute(
+    rows = [dict(r) for r in conn.execute(
         "SELECT id, name, is_bot FROM teams WHERE league_id = ? ORDER BY seat", (league_id,)
-    ).fetchall()
-    order = [dict(r) for r in rows]
-    rng.shuffle(order)
+    )]
+    humans = [t for t in rows if not t["is_bot"]]
+    bots = [t for t in rows if t["is_bot"]]
+    rng.shuffle(humans)
+    rng.shuffle(bots)
+
     result = []
-    for i, t in enumerate(order, start=1):
+    for i, t in enumerate(humans + bots, start=1):
         conn.execute(
             "UPDATE teams SET draft_slot = ? WHERE league_id = ? AND id = ?",
             (i, league_id, t["id"]),

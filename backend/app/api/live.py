@@ -75,7 +75,12 @@ async def lobby_socket(
             if kind == "tap" and team:
                 rnd = hub.round_for(league_id)
                 if rnd:
-                    rnd.tap(team["id"])
+                    # Tell only the tapper what their tap was worth. Broadcasting
+                    # it would let everyone else see the light had gone green
+                    # without looking at it.
+                    await websocket.send_json(
+                        {"type": "tap_result", **rnd.tap(team["id"])})
+                    await hub.room(league_id, "lobby").broadcast(rnd.state())
 
             elif kind == "lock_in" and team:
                 await run_in_threadpool(_set_lock, league_id, team["id"], bool(msg.get("value", True)))
@@ -92,7 +97,37 @@ async def lobby_socket(
                 )
 
             elif kind == "start_minigame" and is_commissioner:
+                hub.clear_redo_votes(league_id)
                 await _start_minigame(league_id)
+
+            elif kind == "open_draft" and is_commissioner:
+                # The order has been seen and nobody is asking for another go.
+                hub.clear_redo_votes(league_id)
+                await _finish_order(league_id)
+
+            elif kind == "vote_redo" and team:
+                # A redo needs both a majority of managers and the
+                # commissioner: a majority alone lets a table of sore losers
+                # re-roll until they like it, and the commissioner alone is
+                # not a vote at all.
+                hub.set_redo_vote(league_id, team["id"], bool(msg.get("value", True)))
+                await _broadcast_redo(league_id)
+
+            elif kind == "grant_redo" and is_commissioner:
+                tally = await run_in_threadpool(_redo_tally, league_id)
+                if not tally["carried"]:
+                    await hub.room(league_id, "lobby").broadcast({
+                        "type": "lobby_error",
+                        "message": (
+                            f"only {tally['votes']} of {tally['managers']} managers "
+                            "want a redo — a majority has to ask first"
+                        ),
+                    })
+                else:
+                    hub.clear_redo_votes(league_id)
+                    await hub.room(league_id, "lobby").broadcast(
+                        {"type": "redo_granted"})
+                    await _start_minigame(league_id)
 
             elif kind == "refresh":
                 await _broadcast_lobby(league_id)
@@ -161,6 +196,27 @@ async def _lobby_countdown(league_id: str, seconds: float | None = None) -> None
         raise
 
 
+def _redo_tally(league_id: str) -> dict[str, Any]:
+    """Who is asking for a rerun, out of who could ask."""
+    with db.closing_conn() as conn:
+        managers = [
+            r["id"] for r in conn.execute(
+                "SELECT id FROM teams WHERE league_id = ? AND is_bot = 0", (league_id,))
+        ]
+    votes = hub.redo_votes(league_id) & set(managers)
+    needed = len(managers) // 2 + 1
+    return {
+        "votes": len(votes), "managers": len(managers), "needed": needed,
+        "carried": len(votes) >= needed and bool(managers),
+        "voters": sorted(votes),
+    }
+
+
+async def _broadcast_redo(league_id: str) -> None:
+    tally = await run_in_threadpool(_redo_tally, league_id)
+    await hub.room(league_id, "lobby").broadcast({"type": "redo_vote", **tally})
+
+
 async def _start_minigame(league_id: str) -> None:
     def prepare() -> tuple[Any, str]:
         with db.closing_conn() as conn:
@@ -183,7 +239,7 @@ async def _start_minigame(league_id: str) -> None:
                 order = minigame_svc.randomized_order(conn, league_id)
                 return order, "randomizer"
             rnd = minigame_svc.build_round(conn, league_id, cfg.speed_round_seconds)
-            return rnd, "speed_round"
+            return rnd, "green_light"
 
     try:
         prepared, mode = await run_in_threadpool(prepare)
@@ -192,9 +248,6 @@ async def _start_minigame(league_id: str) -> None:
             {"type": "lobby_error", "message": str(exc)})
         return
     if mode == "randomizer":
-        # Open the draft room *before* announcing the order, so a manager who
-        # acts on the announcement finds a draft board that already exists.
-        await _finish_order(league_id)
         await hub.room(league_id, "lobby").broadcast(
             {"type": "draft_order", "mode": "randomizer", "order": prepared}
         )
@@ -206,22 +259,29 @@ async def _start_minigame(league_id: str) -> None:
 
 
 async def _run_minigame(league_id: str) -> None:
-    """Drive the shared clock: tick bots, broadcast state, then settle."""
+    """Drive the shared clock: count down, go green, settle when everyone has."""
     room = hub.room(league_id, "lobby")
     try:
+        was_green = False
         while True:
             rnd = hub.round_for(league_id)
             if rnd is None:
                 return
-            rnd.tick_bots()
-            await room.broadcast(rnd.snapshot())
-            if rnd.state == "ended":
+            green = rnd.is_green()
+            # Broadcast every tick before green so the countdown moves, then
+            # once on the transition — the moment itself is the whole game.
+            if green != was_green or not green:
+                await room.broadcast(rnd.state())
+                was_green = green
+            if rnd.is_over():
                 break
             await asyncio.sleep(1 / TICK_HZ)
 
         order = await run_in_threadpool(_persist_minigame, league_id)
-        await _finish_order(league_id)
-        await room.broadcast({"type": "draft_order", "mode": "speed_round", "order": order})
+        # Deliberately not opening the draft here. The order stands for a
+        # moment first, so the room can look at it and ask for a rerun —
+        # jumping straight into the draft leaves nothing to ask about.
+        await room.broadcast({"type": "draft_order", "mode": "green_light", "order": order})
     except asyncio.CancelledError:  # pragma: no cover - shutdown path
         raise
 

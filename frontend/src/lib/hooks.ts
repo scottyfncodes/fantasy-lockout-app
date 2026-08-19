@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, api, socketUrl } from './api';
+import { ApiError, api, socketUrl, tokens } from './api';
 
 /** Fetch on mount (and whenever `deps` change), with a manual `reload`. */
 export function useApi<T = any>(path: string | null, code?: string, deps: any[] = []) {
@@ -46,6 +46,13 @@ export function useSocket(
   const handler = useRef(onMessage);
   handler.current = onMessage;
 
+  // The socket carries identity in its URL, and a page usually opens before
+  // anyone has joined — so the first connection is anonymous. Without this the
+  // socket stays anonymous for the rest of the visit, and every action that
+  // needs a team (locking in, tapping the pad, voting) is accepted by the
+  // client and silently dropped by the server.
+  const auth = code ? `${tokens.manager(code)}|${tokens.commissioner(code)}` : '';
+
   useEffect(() => {
     if (!code) return undefined;
     let closed = false;
@@ -83,7 +90,7 @@ export function useSocket(
       if (timer) window.clearTimeout(timer);
       socket.current?.close();
     };
-  }, [code, room]);
+  }, [code, room, auth]);
 
   const send = useCallback((payload: any) => {
     if (socket.current?.readyState === WebSocket.OPEN) {

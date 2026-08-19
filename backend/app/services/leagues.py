@@ -170,12 +170,13 @@ def planned_size(cfg: LeagueConfig, human_count: int) -> int:
     Bots fill *unfilled* slots, but the league shrinks toward ``min_teams``
     rather than stuffing a half-empty lobby with bots: the final size is the
     commissioner's target unless fewer humans showed up, in which case it drops
-    to the smallest even size that seats everyone, floored at ``min_teams``.
+    to the smallest size that seats everyone, floored at ``min_teams``.
+
+    Odd sizes are kept rather than rounded up. The schedule gives an odd league
+    a rotating bye, so a commissioner who asks for nine teams gets nine — being
+    handed a tenth bot instead is not what they asked for.
     """
-    size = max(cfg.min_teams, human_count)
-    if size % 2:
-        size += 1
-    return min(size, cfg.team_count)
+    return min(max(cfg.min_teams, human_count), cfg.team_count)
 
 
 def fill_bots(conn: sqlite3.Connection, league: dict[str, Any]) -> list[dict[str, Any]]:

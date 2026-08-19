@@ -84,6 +84,7 @@ export default function Commissioner({ code }: { code: string }) {
             ['min_teams', 'Bot-fill minimum'],
             ['lobby_timeout_seconds', 'Lobby timeout (seconds)'],
             ['bench_size', 'Bench size'],
+            ['lineup_lock_hour', 'Lineups lock at (hour, 0-23)'],
             ['il_size', 'IL slots'],
             ['faab_budget', 'FAAB budget'],
             ['waiver_clear_days', 'Waiver clear days'],
@@ -99,6 +100,25 @@ export default function Commissioner({ code }: { code: string }) {
               />
             </label>
           ))}
+          <label className="field" style={{ marginBottom: '.4rem' }}>
+            Teams in the playoffs
+            <select
+              value={String(settings.playoff_teams ?? cfg.playoff_teams)}
+              onChange={(e) =>
+                setSettings({ ...settings, playoff_teams: Number(e.target.value) })
+              }
+            >
+              {/* Powers of two only: a bye-free single-elimination bracket has
+                  no other shape, and the league is at most 15 teams. */}
+              {[2, 4, 8].filter((n) => n <= (cfg.team_count ?? 15)).map((n) => (
+                <option key={n} value={n}>{n} teams</option>
+              ))}
+            </select>
+            <span className="small muted">
+              Single elimination, no byes — so this has to be a power of two, and
+              cannot exceed the {cfg.team_count} teams in the league.
+            </span>
+          </label>
           <label className="field" style={{ marginBottom: '.4rem' }}>
             Freeze rosters once the playoffs begin
             <select

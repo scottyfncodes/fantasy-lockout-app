@@ -31,9 +31,22 @@ def test_team_count_outside_the_supported_range_is_rejected():
         LeagueConfig.load().merged({"team_count": 6})
 
 
-def test_odd_team_count_is_rejected():
-    with pytest.raises(ConfigError):
-        LeagueConfig.load().merged({"team_count": 9})
+def test_an_odd_team_count_is_allowed():
+    """9 to 15 teams are supported; the odd one out has a bye that rotates."""
+    cfg = LeagueConfig.load().merged({"team_count": 11, "playoff_teams": 8})
+    assert cfg.team_count == 11
+    cfg.validate()
+
+
+def test_the_team_count_range_is_8_to_15():
+    base = LeagueConfig.load()
+    assert (base.min_teams, base.max_teams) == (8, 15)
+    for n in range(base.min_teams, base.max_teams + 1):
+        base.merged({"team_count": n}).validate()
+    for bad in (base.min_teams - 1, base.max_teams + 1):
+        with pytest.raises(ConfigError):
+            base.merged({"team_count": bad}).validate()
+
 
 
 def test_playoff_field_cannot_exceed_the_league():
@@ -145,7 +158,10 @@ def test_lobby_shrinks_toward_the_minimum_rather_than_stuffing_bots():
     from app.services.leagues import planned_size
     cfg = LeagueConfig.load().merged({"team_count": 12, "min_teams": 8})
     assert planned_size(cfg, 3) == 8, "three humans should not seat nine bots"
-    assert planned_size(cfg, 9) == 10, "sizes round up to keep the count even"
+    assert planned_size(cfg, 9) == 9, (
+        "odd leagues are supported now — nine managers get a nine-team league "
+        "with a rotating bye, not a tenth bot nobody asked for"
+    )
     assert planned_size(cfg, 12) == 12
     assert planned_size(cfg, 14) == 12, "never exceeds the commissioner's target"
 

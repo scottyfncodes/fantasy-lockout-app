@@ -18,7 +18,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from . import db
-from .services import leagues as leagues_svc, replay as replay_svc
+from .config import LeagueConfig
+from .services import (
+    bots as bots_svc,
+    leagues as leagues_svc,
+    lineups as lineups_svc,
+    replay as replay_svc,
+    waivers as waivers_svc,
+)
 
 log = logging.getLogger("retro.scheduler")
 
@@ -50,11 +57,83 @@ def run_nightly() -> list[dict[str, Any]]:
     return results
 
 
+def _live_leagues(conn) -> list[dict[str, Any]]:
+    return [
+        leagues_svc.require_league(conn, r["id"])
+        for r in conn.execute("SELECT id FROM leagues WHERE phase IN ('season','playoffs')")
+    ]
+
+
+def run_waivers() -> list[dict[str, Any]]:
+    """Clear pending FAAB bids. Runs at midnight on the configured weekdays.
+
+    Waivers are a real-world deadline rather than a replay one: managers bid
+    across the week and the wire clears three times in it, so a player dropped
+    on Tuesday is claimable by Wednesday rather than sitting until the next
+    Monday.
+    """
+    results: list[dict[str, Any]] = []
+    with db.closing_conn() as conn:
+        for league in _live_leagues(conn):
+            cfg = leagues_svc.league_config(league)
+            week = league["current_week"] or 1
+            if week > cfg.regular_season_weeks:
+                continue  # rosters freeze for the playoffs
+            try:
+                with db.transaction(conn):
+                    if cfg.bots_use_waivers:
+                        bots_svc.submit_bot_bids(conn, league, cfg, week)
+                    done = waivers_svc.process_week(conn, league, cfg, week)
+                results.append({"league": league["code"], "claims": len(done)})
+                if done:
+                    log.info("waivers cleared %s claims in %s", len(done), league["code"])
+            except Exception:  # noqa: BLE001 - one league must not stop the rest
+                log.exception("waiver run failed for league %s", league["code"])
+                results.append({"league": league["code"], "status": "error"})
+    return results
+
+
+def run_lineup_lock() -> list[dict[str, Any]]:
+    """Lock the current week's lineups. Monday at noon, by default.
+
+    Hours before that night's first replayed games, so a manager who has not
+    set a lineup gets the auto-fill rather than an empty one, and nobody can
+    react to a result they have already seen.
+    """
+    results: list[dict[str, Any]] = []
+    with db.closing_conn() as conn:
+        for league in _live_leagues(conn):
+            cfg = leagues_svc.league_config(league)
+            week = league["current_week"] or 1
+            try:
+                with db.transaction(conn):
+                    bots_svc.set_all_bot_lineups(conn, league, cfg, week)
+                    locked = lineups_svc.lock_week(conn, league, cfg, week)
+                results.append({"league": league["code"], "locked": len(locked)})
+            except Exception:  # noqa: BLE001
+                log.exception("lineup lock failed for league %s", league["code"])
+                results.append({"league": league["code"], "status": "error"})
+    return results
+
+
 def start() -> AsyncIOScheduler:
     global _scheduler
     if _scheduler is not None:
         return _scheduler
     scheduler = AsyncIOScheduler(timezone=SIM_TZ)
+    cfg = LeagueConfig.load()
+    scheduler.add_job(
+        run_waivers,
+        CronTrigger(day_of_week=",".join(str(d) for d in cfg.waiver_run_weekdays),
+                    hour=0, minute=0, timezone=SIM_TZ),
+        id="waivers", replace_existing=True, misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        run_lineup_lock,
+        CronTrigger(day_of_week=str(cfg.lineup_lock_weekday),
+                    hour=cfg.lineup_lock_hour, minute=0, timezone=SIM_TZ),
+        id="lineup-lock", replace_existing=True, misfire_grace_time=3600,
+    )
     scheduler.add_job(
         run_nightly,
         CronTrigger(hour=SIM_HOUR, minute=SIM_MINUTE, timezone=SIM_TZ),

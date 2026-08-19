@@ -2,7 +2,7 @@
   "_comment": "League defaults. The commissioner can override any of these when creating a league; nothing here is hardcoded in the engine.",
   "team_count": 12,
   "min_teams": 8,
-  "max_teams": 14,
+  "max_teams": 15,
   "lobby_timeout_seconds": 300,
   "active_slots": {
     "C": 1,
@@ -27,6 +27,15 @@
   "faab_budget": 100,
   "bots_use_waivers": true,
   "waiver_clear_days": 2,
+  "waiver_run_weekdays": [
+    0,
+    2,
+    5
+  ],
+  "_waiver_run_weekdays_note": "Weekdays pending FAAB bids clear, at midnight. 0=Monday. [0,2,5] is Monday, Wednesday and Saturday.",
+  "lineup_lock_weekday": 0,
+  "lineup_lock_hour": 12,
+  "_lineup_lock_note": "Lineups for the week lock at this weekday and hour, local league time \u2014 Monday at noon, hours before that night's first replayed games.",
   "_freeze_note": "Rosters freeze when the playoffs begin \u2014 an add at that point is pure memory-sniping. freeze_adds_final_weeks additionally freezes the last N weeks of the regular season (0 = open).",
   "freeze_adds_in_playoffs": true,
   "freeze_adds_final_weeks": 0,

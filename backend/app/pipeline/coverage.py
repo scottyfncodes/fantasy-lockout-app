@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from typing import Any
 
-BATTING_STATS = ["R", "1B", "2B", "3B", "HR", "RBI", "SB", "BB", "IBB", "HBP", "K", "CYC", "SLAM"]
+BATTING_STATS = ["R", "1B", "2B", "3B", "HR", "RBI", "SB", "BB", "IBB", "HBP", "K", "SLAM"]
 PITCHING_STATS = ["IP", "W", "CG", "SV", "ER", "K", "QS"]
 
 _ALL_NATIVE_B = {s: ("native", "") for s in BATTING_STATS}
@@ -51,7 +51,6 @@ SOURCES: dict[str, dict[str, Any]] = {
             "IBB": ("native", "B_IBB"),
             "HBP": ("native", "B_HP"),
             "K": ("native", "B_SO"),
-            "CYC": ("derived", "1B & 2B & 3B & HR all >= 1 in one game"),
             "SLAM": ("native", "B_HR4 — cwdaily breaks home runs out by men on base"),
         },
         "pitching": {
@@ -76,7 +75,6 @@ SOURCES: dict[str, dict[str, Any]] = {
             **_ALL_NATIVE_B,
             "1B": ("derived", "H - 2B - 3B - HR"),
             "IBB": ("native", "BR game logs carry IBB"),
-            "CYC": ("derived", ""),
             "SLAM": ("partial", "Not in game logs. Derivable from Statcast (2008+) by filtering HR events with the bases loaded."),
         },
         "pitching": {
@@ -112,7 +110,7 @@ SOURCES: dict[str, dict[str, Any]] = {
 # Stats no traditional box score carries. The spec asked for these to be flagged
 # before the schema was locked; SLAM is why the schema stores an explicit `slam`
 # column rather than inferring grand slams from HR + RBI.
-NON_STANDARD_STATS = ["IBB", "SLAM", "CYC", "QS"]
+NON_STANDARD_STATS = ["IBB", "SLAM", "QS"]
 
 
 def _iter_stats(spec: dict[str, Any]):

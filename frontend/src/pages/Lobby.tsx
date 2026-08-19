@@ -10,6 +10,8 @@ export default function Lobby({ code }: { code: string }) {
   const { data, error, reload } = useApi<any>(`/api/leagues/${code}`, code);
   const [lobby, setLobby] = useState<any>(null);
   const [minigame, setMinigame] = useState<any>(null);
+  const [tapResult, setTapResult] = useState<any>(null);
+  const [redo, setRedo] = useState<any>(null);
   const [order, setOrder] = useState<any[] | null>(null);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [teamName, setTeamName] = useState('');
@@ -24,6 +26,9 @@ export default function Lobby({ code }: { code: string }) {
     else if (m.type === 'lobby_error') setMsg(m.message);
     else if (m.type === 'lobby_countdown') setCountdown(m.remaining);
     else if (m.type === 'minigame_state') setMinigame(m);
+    else if (m.type === 'tap_result') setTapResult(m);
+    else if (m.type === 'redo_vote') setRedo(m);
+    else if (m.type === 'redo_granted') { setOrder(null); setTapResult(null); setRedo(null); }
     else if (m.type === 'draft_order') setOrder(m.order);
     else if (m.type === 'phase' && m.phase === 'draft') navigate(`/l/${code}/draft`);
   });
@@ -232,8 +237,10 @@ export default function Lobby({ code }: { code: string }) {
         <div className="card">
           <h3>Draft order</h3>
           <p className="small muted">
-            Every manager gets the same {view.config?.speed_round_seconds ?? 10}-second window to
-            tap the ball. Most taps picks first; bots play too.
+            Everyone watches the same pad. It counts down from three, holds for
+            a moment nobody can predict, then turns green — first to tap after
+            that picks first. Tap early and you go to the back. Bots line up
+            behind every manager.
           </p>
           <button
             className="primary"
@@ -246,8 +253,45 @@ export default function Lobby({ code }: { code: string }) {
         </div>
       ) : null}
 
+      {order ? (
+        <div className="card tight">
+          <h3>Not happy with that?</h3>
+          <p className="small muted">
+            A majority of managers can ask for a rerun, and the commissioner has
+            to agree — neither alone is enough.
+          </p>
+          <div className="row">
+            <button
+              onClick={() => send({ type: 'vote_redo', value: true })}
+              disabled={!joined}
+            >
+              Ask for a redo
+            </button>
+            {redo ? (
+              <span className="small muted">
+                {redo.votes} of {redo.managers} asking · {redo.needed} needed
+              </span>
+            ) : null}
+            {isCommissioner ? (
+              <button
+                className="primary"
+                disabled={!redo?.carried}
+                title={redo?.carried ? undefined : 'a majority has to ask first'}
+                onClick={() => send({ type: 'grant_redo' })}
+              >
+                Run it again
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {minigame && !order ? (
-        <SpeedRound state={minigame} onTap={() => send({ type: 'tap' })} myTeamId={myTeamId} />
+        <SpeedRound
+          state={minigame}
+          result={tapResult}
+          onTap={() => send({ type: 'tap' })}
+        />
       ) : null}
 
       {order ? (
@@ -258,7 +302,7 @@ export default function Lobby({ code }: { code: string }) {
               <tr>
                 <th>Pick</th>
                 <th>Team</th>
-                <th className="right">Taps</th>
+                <th className="right">Reaction</th>
               </tr>
             </thead>
             <tbody>
@@ -267,15 +311,29 @@ export default function Lobby({ code }: { code: string }) {
                   <td>{o.pick}</td>
                   <td>
                     {o.name} {o.is_bot ? <span className="tag bot">bot</span> : null}
+                    {o.false_start ? <span className="tag loss">jumped</span> : null}
+                    {o.no_show ? <span className="tag">no tap</span> : null}
                   </td>
-                  <td className="right mono">{o.score}</td>
+                  <td className="right mono">
+                    {o.reaction ? `${Math.round(o.reaction * 1000)} ms` : '—'}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <button className="primary" style={{ marginTop: '.75rem' }} onClick={() => navigate(`/l/${code}/draft`)}>
-            Enter the draft room
-          </button>
+          {isCommissioner ? (
+            <button
+              className="primary"
+              style={{ marginTop: '.75rem' }}
+              onClick={() => send({ type: 'open_draft' })}
+            >
+              Looks right — open the draft
+            </button>
+          ) : (
+            <p className="small muted" style={{ marginTop: '.5rem' }}>
+              Waiting for the commissioner to open the draft room.
+            </p>
+          )}
         </div>
       ) : null}
 

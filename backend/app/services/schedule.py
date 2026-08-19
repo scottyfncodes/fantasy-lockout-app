@@ -16,16 +16,28 @@ from typing import Any
 from ..config import LeagueConfig
 
 
+BYE = "__bye__"
+
+
 def round_robin_rounds(team_ids: list[str]) -> list[list[tuple[str, str]]]:
-    """One full cycle: ``n - 1`` rounds in which everyone plays everyone once."""
+    """One full cycle: everyone plays everyone once.
+
+    An odd league gets a phantom opponent, which is the standard way to build
+    this: whoever is drawn against it that round has the week off. The circle
+    method then works unchanged, and the bye rotates evenly by construction —
+    no team sits out twice before another has sat out once.
+    """
     if len(team_ids) % 2:
-        raise ValueError("round robin needs an even number of teams")
+        team_ids = [*team_ids, BYE]
     fixed, rotating = team_ids[0], team_ids[1:]
     rounds: list[list[tuple[str, str]]] = []
     for r in range(len(team_ids) - 1):
         order = [fixed] + rotating[-r:] + rotating[:-r] if r else [fixed] + rotating
         half = len(order) // 2
-        rounds.append([(order[i], order[-(i + 1)]) for i in range(half)])
+        rounds.append([
+            (order[i], order[-(i + 1)]) for i in range(half)
+            if BYE not in (order[i], order[-(i + 1)])
+        ])
     return rounds
 
 

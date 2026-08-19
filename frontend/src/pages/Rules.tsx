@@ -1,6 +1,14 @@
 import { useApi } from '../lib/hooks';
 import { ErrorBanner, Loading } from '../components/common';
 
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+function hour12(h: number): string {
+  if (h === 0) return 'midnight';
+  if (h === 12) return 'noon';
+  return h > 12 ? `${h - 12}pm` : `${h}am`;
+}
+
 export default function Rules({ code }: { code: string }) {
   const { data, error } = useApi<any>(`/api/leagues/${code}`, code);
   const { data: coverage } = useApi<any>('/api/meta/coverage');
@@ -30,7 +38,10 @@ export default function Rules({ code }: { code: string }) {
         <div className="card tight">
           <h3>Format</h3>
           <ul className="small" style={{ paddingLeft: '1.1rem' }}>
-            <li>{cfg.team_count} teams, weekly head-to-head, Monday–Sunday.</li>
+            <li>
+              {cfg.team_count}-team league ({cfg.min_teams}–{cfg.max_teams} supported),
+              weekly head-to-head, Monday–Sunday.
+            </li>
             <li>
               {cfg.regular_season_weeks}-week regular season, then {cfg.playoff_weeks} playoff
               weeks ({cfg.total_weeks} total). The All-Star break week is skipped entirely.
@@ -40,7 +51,15 @@ export default function Rules({ code }: { code: string }) {
               Top {cfg.playoff_teams} make the playoffs — single elimination, no byes, and the
               final is two weeks on combined points.
             </li>
-            <li>Lineups lock when the week starts. One day of games processes each night at 8:00 PM Central.</li>
+            <li>
+              Lineups lock {DAYS[cfg.lineup_lock_weekday] ?? 'Monday'} at{' '}
+              {hour12(cfg.lineup_lock_hour)}, hours before that night&rsquo;s games.
+            </li>
+            <li>One day of games processes each night at 8:00 PM Central.</li>
+            <li>
+              Waivers clear at midnight on{' '}
+              {(cfg.waiver_run_weekdays ?? []).map((d: number) => DAYS[d]).join(', ')}.
+            </li>
             <li>
               {cfg.draft_pick_seconds
                 ? `Draft picks are on a ${cfg.draft_pick_seconds}-second clock — miss it and the room picks for you.`
@@ -69,7 +88,8 @@ export default function Rules({ code }: { code: string }) {
             <div className="banner" key={caveat}>{caveat}</div>
           ))}
           <p className="small muted">
-            FAAB budget: {cfg.faab_budget} · waivers clear after {cfg.waiver_clear_days} days ·{' '}
+            FAAB budget: {cfg.faab_budget} · a dropped player clears waivers after{' '}
+            {cfg.waiver_clear_days} days ·{' '}
             {cfg.freeze_adds_in_playoffs
               ? 'rosters freeze once the playoffs begin'
               : 'adds stay open through the playoffs'}
