@@ -579,3 +579,71 @@ def test_deleting_a_league_frees_a_slot(client, monkeypatch):
 
     existing = client.get("/api/meta/defaults").json()["capacity"]
     assert existing["remaining"] == 0
+
+
+def test_two_managers_race_and_the_faster_one_picks_first(client):
+    """The whole point of the game, over real sockets rather than in isolation.
+
+    Also covers the majority rule: with two managers a redo needs both, so one
+    manager cannot re-roll an order they simply did not like.
+    """
+    league = make_league(client, TINY_ROSTER)
+    code = league["code"]
+    quick = join(client, code, "Quick")
+    slow = join(client, code, "Slow")
+    client.post(f"/api/leagues/{code}/start",
+                headers={"X-Commissioner-Token": league["commissioner_token"]})
+
+    quick_url = (f"/ws/{code}/lobby?token={quick['manager_token']}"
+                 f"&commish={league['commissioner_token']}")
+    slow_url = f"/ws/{code}/lobby?token={slow['manager_token']}"
+
+    with client.websocket_connect(quick_url) as a, client.websocket_connect(slow_url) as b:
+        a.receive_json()
+        b.receive_json()
+        a.send_json({"type": "start_minigame"})
+
+        order = None
+        tapped = set()
+        for _ in range(800):
+            msg = a.receive_json()
+            if msg["type"] == "minigame_state" and msg["green"]:
+                # Quick taps first, then Slow — the sockets are ordered, which
+                # is what decides it.
+                if "quick" not in tapped:
+                    tapped.add("quick")
+                    a.send_json({"type": "tap"})
+                elif "slow" not in tapped:
+                    tapped.add("slow")
+                    b.send_json({"type": "tap"})
+            elif msg["type"] == "draft_order":
+                order = msg["order"]
+                break
+        assert order, "the round never resolved"
+
+        humans = [o for o in order if not o["is_bot"]]
+        assert [h["name"] for h in humans] == ["Quick", "Slow"], (
+            "whoever tapped first must pick first"
+        )
+        assert humans[0]["reaction"] <= humans[1]["reaction"]
+        assert all(o["is_bot"] for o in order[len(humans):]), "bots at the back"
+
+        # One vote of two is not a majority.
+        a.send_json({"type": "vote_redo", "value": True})
+        tally = _next(a, "redo_vote")
+        assert tally["votes"] == 1 and tally["needed"] == 2 and not tally["carried"]
+
+        a.send_json({"type": "grant_redo"})
+        refused = _next(a, "lobby_error")
+        assert "majority" in refused["message"]
+
+        b.send_json({"type": "vote_redo", "value": True})
+        assert _next(a, "redo_vote")["carried"], "both managers asked"
+
+
+def _next(ws, kind: str, limit: int = 200):
+    for _ in range(limit):
+        msg = ws.receive_json()
+        if msg["type"] == kind:
+            return msg
+    raise AssertionError(f"never saw a {kind} frame")
