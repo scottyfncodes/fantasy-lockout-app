@@ -13,6 +13,7 @@ export default function Lobby({ code }: { code: string }) {
   const [tapResult, setTapResult] = useState<any>(null);
   const [redo, setRedo] = useState<any>(null);
   const [order, setOrder] = useState<any[] | null>(null);
+  const [starting, setStarting] = useState(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [teamName, setTeamName] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
@@ -23,12 +24,14 @@ export default function Lobby({ code }: { code: string }) {
 
   const { state: wsState, send } = useSocket(code, 'lobby', (m) => {
     if (m.type === 'lobby_state') setLobby(m);
-    else if (m.type === 'lobby_error') setMsg(m.message);
+    else if (m.type === 'lobby_error') { setMsg(m.message); setStarting(false); }
     else if (m.type === 'lobby_countdown') setCountdown(m.remaining);
-    else if (m.type === 'minigame_state') setMinigame(m);
+    else if (m.type === 'minigame_state') { setMinigame(m); setStarting(false); }
     else if (m.type === 'tap_result') setTapResult(m);
     else if (m.type === 'redo_vote') setRedo(m);
-    else if (m.type === 'redo_granted') { setOrder(null); setTapResult(null); setRedo(null); }
+    else if (m.type === 'redo_granted') {
+      setOrder(null); setTapResult(null); setRedo(null); setMinigame(null);
+    }
     else if (m.type === 'draft_order') setOrder(m.order);
     else if (m.type === 'phase' && m.phase === 'draft') navigate(`/l/${code}/draft`);
   });
@@ -94,6 +97,12 @@ export default function Lobby({ code }: { code: string }) {
 
   const shareUrl = `${window.location.origin}/join/${code}`;
   const myTeamId = tokens.teamId(code);
+
+  // The pad never fires by itself. Whenever the year is drawn and no round is
+  // in flight — first run, or a round that fizzled and left no order — the
+  // commissioner has the button and everyone else is told who is holding it.
+  const readyToStart =
+    (phase === 'year_reveal' || phase === 'minigame') && !minigame && !order;
 
   return (
     <>
@@ -237,23 +246,35 @@ export default function Lobby({ code }: { code: string }) {
         </div>
       ) : null}
 
-      {phase === 'year_reveal' && isCommissioner ? (
+      {readyToStart ? (
         <div className="card">
           <h3>Draft order</h3>
           <p className="small muted">
-            Everyone watches the same pad. It counts down from three, holds for
-            a moment nobody can predict, then turns green — first to tap after
-            that picks first. Tap early and you go to the back. Bots line up
-            behind every manager.
+            Everyone watches the same pad. It counts three, two, one — and on
+            one it turns green. First to tap after that picks first; tap before
+            green and you go to the back. Bots line up behind every manager.
           </p>
-          <button
-            className="primary"
-            disabled={!view.season?.ready}
-            title={view.season?.ready ? undefined : 'the season is still loading'}
-            onClick={() => send({ type: 'start_minigame' })}
-          >
-            {view.season?.ready ? 'Start the Green Light' : 'Waiting for the season…'}
-          </button>
+          {isCommissioner ? (
+            <button
+              className="primary"
+              disabled={!view.season?.ready || starting}
+              title={view.season?.ready ? undefined : 'the season is still loading'}
+              onClick={() => { setStarting(true); send({ type: 'start_minigame' }); }}
+            >
+              {!view.season?.ready
+                ? 'Waiting for the season…'
+                : starting
+                  ? 'Starting…'
+                  : phase === 'minigame'
+                    ? 'Start the Green Light again'
+                    : 'Start the Green Light'}
+            </button>
+          ) : (
+            <p className="small muted">
+              Nothing starts on its own — the commissioner sets it off when the
+              room is ready. Keep this page open.
+            </p>
+          )}
         </div>
       ) : null}
 

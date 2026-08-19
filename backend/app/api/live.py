@@ -98,19 +98,14 @@ async def lobby_socket(
 
             elif kind == "start_minigame" and is_commissioner:
                 hub.clear_redo_votes(league_id)
-                await _start_minigame(league_id)
+                await _guarded(league_id, _start_minigame(league_id),
+                               "the Green Light could not be started")
 
             elif kind == "open_draft" and is_commissioner:
                 # The order has been seen and nobody is asking for another go.
                 hub.clear_redo_votes(league_id)
-                try:
-                    await _finish_order(league_id)
-                except Exception as exc:  # noqa: BLE001 - the room must hear it
-                    logging.exception("opening the draft failed for league %s", league_id)
-                    await hub.room(league_id, "lobby").broadcast({
-                        "type": "lobby_error",
-                        "message": f"the draft room could not be opened: {exc}",
-                    })
+                await _guarded(league_id, _finish_order(league_id),
+                               "the draft room could not be opened")
 
             elif kind == "vote_redo" and team:
                 # A redo needs both a majority of managers and the
@@ -134,7 +129,8 @@ async def lobby_socket(
                     hub.clear_redo_votes(league_id)
                     await hub.room(league_id, "lobby").broadcast(
                         {"type": "redo_granted"})
-                    await _start_minigame(league_id)
+                    await _guarded(league_id, _start_minigame(league_id),
+                                   "the rerun could not be started")
 
             elif kind == "refresh":
                 await _broadcast_lobby(league_id)
@@ -148,6 +144,21 @@ async def lobby_socket(
 def _set_lock(league_id: str, team_id: str, value: bool) -> None:
     with db.closing_conn() as conn:
         leagues_svc.set_locked_in(conn, league_id, team_id, value)
+
+
+async def _guarded(league_id: str, coro: Any, what: str) -> None:
+    """Run a commissioner action, telling the room if it fails.
+
+    Without this an unexpected error escapes the socket's read loop, drops the
+    connection, and leaves a room staring at a button that looks dead — which
+    is exactly how the last one of these was found.
+    """
+    try:
+        await coro
+    except Exception as exc:  # noqa: BLE001 - the room must hear about any of them
+        logging.exception("%s for league %s", what, league_id)
+        await hub.room(league_id, "lobby").broadcast(
+            {"type": "lobby_error", "message": f"{what}: {exc}"})
 
 
 async def _broadcast_lobby(league_id: str) -> None:

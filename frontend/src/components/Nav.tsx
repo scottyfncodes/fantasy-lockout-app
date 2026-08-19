@@ -1,6 +1,6 @@
 import { Link, useRouter } from '../lib/router';
 import { tokens } from '../lib/api';
-import { useApi } from '../lib/hooks';
+import { useApi, useInterval } from '../lib/hooks';
 
 const TABS = [
   ['', 'Lobby'],
@@ -18,7 +18,11 @@ export default function Nav({ code }: { code: string }) {
   // Refetch on every navigation. The header mounts once and outlives every
   // page, so a single fetch left it reading "season pending" for the rest of
   // the visit — including on the draft page for a season already drawn.
-  const { data } = useApi<any>(`/api/leagues/${code}`, code, [path]);
+  const { data, reload } = useApi<any>(`/api/leagues/${code}`, code, [path]);
+  // Until the year is drawn there is nothing to show but "season pending", and
+  // the draw happens on a page that never navigates — so check back until it
+  // lands, then stop.
+  useInterval(reload, data && !data.season_year ? 5000 : null);
   const isCommissioner = !!tokens.commissioner(code);
   const base = `/l/${code}`;
 

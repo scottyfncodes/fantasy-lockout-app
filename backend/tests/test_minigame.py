@@ -9,12 +9,29 @@ def build(conn, league):
     return minigame.build_round(conn, league["id"], seed=7)
 
 
-def test_the_light_is_not_green_during_the_countdown(conn, league):
+def test_green_lands_exactly_on_the_end_of_the_count(conn, league):
+    """Three, two, one, green — and nothing to sit through in between.
+
+    The light used to be held back a random beat past the count, which put a
+    dead "wait for it" stretch on screen. Green is now the end of the count.
+    """
     rnd = build(conn, league)
     rnd.start(now=0.0)
     assert not rnd.is_green(now=0.0)
-    assert not rnd.is_green(now=minigame.COUNTDOWN_SECONDS)
-    assert rnd.is_green(now=100.0)
+    assert not rnd.is_green(now=minigame.COUNTDOWN_SECONDS - 0.01)
+    assert rnd.is_green(now=minigame.COUNTDOWN_SECONDS)
+    assert rnd.green_at == minigame.COUNTDOWN_SECONDS
+
+
+def test_the_count_on_screen_runs_out_on_green(conn, league):
+    """Whatever the pad is showing has to agree with when it turns."""
+    rnd = build(conn, league)
+    rnd.start(now=0.0)
+    for t in (0.0, 1.0, 2.5, 2.99):
+        state = rnd.state(now=t)
+        assert state["green"] is False
+        assert state["counts_down"] > 0, f"count already spent at {t}s, still not green"
+    assert rnd.state(now=minigame.COUNTDOWN_SECONDS)["counts_down"] == 0
 
 
 def test_reaction_order_decides_the_draft(conn, league):

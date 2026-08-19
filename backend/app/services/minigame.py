@@ -1,15 +1,16 @@
 """Draft-order mini-game: the Green Light.
 
-Everyone stares at the same pad. It counts three, two, one, holds for a beat
-nobody can predict, and turns green. The order people tap after that is the
-draft order — fastest reaction picks first.
+Everyone stares at the same pad. It counts three, two, one — and on one, it is
+green. Nothing in between: no held beat, no "wait for it", no screen anyone has
+to sit through. The order people tap after green is the draft order — fastest
+reaction picks first.
 
-Tapping before green is a false start, and it costs you: jumpers go behind
-everyone who waited. Otherwise the winning move is to hammer the pad from the
-countdown, which is not a game.
+The count is honest, so anyone can time it. What stops the room from mashing
+the pad on two is the false start: tap before green and you go behind everyone
+who waited. Timing it fine is the game; guessing costs you the whole draft.
 
-The server is authoritative, as it has to be. It owns the countdown, chooses
-the green-light moment, and — crucially — timestamps arrivals itself rather
+The server is authoritative, as it has to be. It owns the countdown, owns the
+moment the light turns, and — crucially — timestamps arrivals itself rather
 than trusting a client's claim about its own reaction time. Nobody sends a
 score; they send a tap, and the server decides what it was worth.
 
@@ -20,18 +21,15 @@ themselves, and every human beats every bot.
 
 from __future__ import annotations
 
+import math
 import random
 import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Any
 
+# Three, two, one — and green lands on one. The count is the whole warning.
 COUNTDOWN_SECONDS = 3.0
-
-# How long after the countdown the light actually turns green. Randomised, or
-# the game becomes a stopwatch exercise rather than a reaction.
-MIN_HOLD_SECONDS = 0.8
-MAX_HOLD_SECONDS = 3.2
 
 # How long the pad stays live before anyone still asleep is counted as absent.
 REACTION_WINDOW_SECONDS = 5.0
@@ -58,10 +56,8 @@ class GreenLight:
     # ---- lifecycle ----------------------------------------------------
     def start(self, now: float | None = None) -> None:
         now = now if now is not None else time.monotonic()
-        rng = random.Random(self.seed)
         self.starts_at = now
-        hold = rng.uniform(MIN_HOLD_SECONDS, MAX_HOLD_SECONDS)
-        self.green_at = now + COUNTDOWN_SECONDS + hold
+        self.green_at = now + COUNTDOWN_SECONDS
 
     def is_green(self, now: float | None = None) -> bool:
         now = now if now is not None else time.monotonic()
@@ -137,11 +133,15 @@ class GreenLight:
             "type": "minigame_state",
             "game": "green_light",
             "green": green,
-            # Before green this is the countdown; clients must not be told when
-            # green arrives, or the honest ones lose to the ones reading it.
+            # The countdown, in seconds, running out exactly on green. It is
+            # meant to be readable: the pad shows three, two, one and then the
+            # light, with nothing to wait through in between.
+            # Rounded *up*, not to nearest: rounding down put a frame of "0"
+            # on a pad that was not green yet, which is the dead beat this game
+            # is supposed to have none of.
             "counts_down": (
-                max(0.0, round(self.starts_at + COUNTDOWN_SECONDS - now, 1))
-                if self.starts_at is not None else None
+                max(0.0, math.ceil((self.green_at - now) * 10) / 10)
+                if self.green_at is not None else None
             ),
             "finished": self.finished,
             "taps": [

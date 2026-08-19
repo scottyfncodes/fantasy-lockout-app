@@ -137,10 +137,11 @@ scoring config?" — see [Positional value](#positional-value).
 2. **Close the lobby** — by hand, or on a countdown so nobody has to chase
    stragglers. Empty seats fill with bots and the replay season is **drawn at
    random** from the cached, eligible years — nobody picks it.
-3. **Draft order.** The Green Light: everyone watches one pad, it counts down
-   from three, holds for a beat nobody can predict, then turns green — the
-   order people tap in is the draft order. Tapping early is a false start and
-   drops you behind everyone who waited. Bots never compete; they line up
+3. **Draft order.** The Green Light: the commissioner sets it off when the
+   room is ready, everyone watches one pad, it counts three, two, one — and on
+   one it is green. The order people tap in is the draft order. The count is
+   honest and anyone can time it; what stops the room mashing the pad on two is
+   the false start, which drops you behind everyone who waited. Bots never compete; they line up
    behind every manager. The order then *stands* until the commissioner opens
    the draft, so a majority of managers can ask for a rerun — which needs the
    commissioner to agree as well. (A plain shuffle is a config switch away.)
