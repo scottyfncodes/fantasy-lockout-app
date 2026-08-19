@@ -3,7 +3,7 @@ import { fmt, tokens } from '../lib/api';
 import { useApi } from '../lib/hooks';
 import { ErrorBanner, Loading, PlayerLink } from '../components/common';
 
-const BONUS_EMOJI: Record<string, string> = { CYC: '🔄', SLAM: '💣' };
+const BONUS_EMOJI: Record<string, string> = { SLAM: '💣' };
 
 /**
  * One replayed day.

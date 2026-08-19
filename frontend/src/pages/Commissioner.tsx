@@ -147,7 +147,7 @@ export default function Commissioner({ code }: { code: string }) {
               value={settings.draft_order_mode ?? cfg.draft_order_mode}
               onChange={(e) => setSettings({ ...settings, draft_order_mode: e.target.value })}
             >
-              <option value="speed_round">Speed Round (tap the ball)</option>
+              <option value="speed_round">Green Light (react to the pad)</option>
               <option value="randomizer">Animated randomizer</option>
             </select>
           </label>

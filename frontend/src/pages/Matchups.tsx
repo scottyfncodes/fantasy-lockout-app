@@ -4,7 +4,7 @@ import { useApi } from '../lib/hooks';
 import { ErrorBanner, Loading } from '../components/common';
 import { Link } from '../lib/router';
 
-const BONUS_EMOJI: Record<string, string> = { CYC: '🔄', SLAM: '💣' };
+const BONUS_EMOJI: Record<string, string> = { SLAM: '💣' };
 
 export default function Matchups({ code }: { code: string }) {
   const { data: league } = useApi<any>(`/api/leagues/${code}`, code);

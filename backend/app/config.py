@@ -184,8 +184,8 @@ class LeagueConfig:
             )
         # Odd team counts are allowed: the schedule adds a phantom opponent, so
         # one team has the week off and the bye rotates evenly.
-        if self.min_teams < 2 or self.min_teams % 2:
-            raise ConfigError("min_teams must be an even number >= 2")
+        if self.min_teams < 2:
+            raise ConfigError("min_teams must be at least 2")
         if any(v < 0 for v in self.active_slots.values()):
             raise ConfigError("active slot counts cannot be negative")
         if self.bench_size < 0 or self.il_size < 0:

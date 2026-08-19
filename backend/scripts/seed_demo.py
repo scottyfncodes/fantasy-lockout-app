@@ -20,7 +20,7 @@ from app import db  # noqa: E402
 from app.config import LeagueConfig  # noqa: E402
 from app.scoring import ScoringConfig  # noqa: E402
 from app.services import (  # noqa: E402
-    bots, draft, leagues, minigame, replay, timeline,
+    bots, draft, leagues, minigame, replay, season_cache, timeline,
 )
 
 
@@ -48,6 +48,12 @@ def main(argv: list[str] | None = None) -> int:
 
     leagues.start_from_lobby(conn, league, rng=rng)
     league = leagues.require_league(conn, created["id"])
+    # Seasons are cached when a league draws one, and this script talks to the
+    # services directly rather than through the API that normally kicks that
+    # off. Without it the draw lands on an uncached year and the draft runs
+    # against an empty player pool.
+    print(f"caching the {league['season_year']} season ...", flush=True)
+    season_cache.ensure(league["season_year"], blocking=True)
     # Closing the lobby can shrink the league to fit the humans who showed up,
     # and it rewrites the stored config to match — so re-read it rather than
     # carrying the pre-lobby target around.

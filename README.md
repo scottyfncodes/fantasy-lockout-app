@@ -131,19 +131,27 @@ scoring config?" — see [Positional value](#positional-value).
 
 ## How a league runs
 
-1. **Lobby.** The commissioner creates a league and shares a six-character
-   join code. Managers enter a team name and lock in.
+1. **Lobby.** The commissioner creates a league of 8 to 15 teams and shares a
+   six-character join code. Managers enter a team name and lock in. An odd
+   league is fine: the schedule gives it a rotating bye.
 2. **Close the lobby** — by hand, or on a countdown so nobody has to chase
    stragglers. Empty seats fill with bots and the replay season is **drawn at
    random** from the cached, eligible years — nobody picks it.
-3. **Draft order.** A ten-second Speed Round: everyone taps the same moving
-   ball at the same moment, most taps picks first. (A provably-fair randomizer
-   is a config switch away.)
+3. **Draft order.** The Green Light: everyone watches one pad, it counts down
+   from three, holds for a beat nobody can predict, then turns green — the
+   order people tap in is the draft order. Tapping early is a false start and
+   drops you behind everyone who waited. Bots never compete; they line up
+   behind every manager. The order then *stands* until the commissioner opens
+   the draft, so a majority of managers can ask for a rerun — which needs the
+   commissioner to agree as well. (A plain shuffle is a config switch away.)
 4. **Snake draft** in a live room — picks land instantly for everyone, on a
    90-second pick clock so one dropped connection cannot stall thirteen other
    managers. The clock is server-side (a reconnect does not reset it) and
    `draft_pick_seconds: 0` turns it off.
-5. **Season.** Every night at 8:00 PM Central the replay advances one day.
+5. **Season.** Lineups lock at noon on Monday. Waivers clear at midnight on
+   Monday, Wednesday and Saturday — both are real-world deadlines, so they are
+   scheduled jobs rather than something the replay does on its way past.
+   Every night at 8:00 PM Central the replay advances one day.
    Points accrue Monday–Sunday; the higher weekly total wins the matchup. The
    morning after, **Last Night** shows what your starters did, what the bench
    did instead, and which way the week's matchup moved.
@@ -157,7 +165,7 @@ where managers act at the same instant:
 
 | Feature | Transport | Why |
 | --- | --- | --- |
-| Draft-order mini-game | WebSocket | Simultaneous play; the server owns the clock, the ball and the tap counts |
+| Draft-order mini-game | WebSocket | Simultaneous play; the server owns the countdown, chooses the green-light moment and timestamps the taps itself |
 | Draft room | WebSocket | Everyone must see picks land, or two managers take the same player |
 | Lineups | REST | You only touch your own team |
 | Waiver bids | REST | Blind by design — invisibility is the feature |
@@ -397,7 +405,7 @@ back into the last N weeks of the regular season (0 by default).
 ```
 backend/
   app/
-    scoring.py / scoring.json      point values + derived events (cycle, slam, QS)
+    scoring.py / scoring.json      point values + derived events (slam, QS)
     config.py  / league_config.json  every league knob
     season_calendar.py             fantasy weeks ↔ real dates, All-Star skip
     schema.sql, db.py              SQLite cache + live league state

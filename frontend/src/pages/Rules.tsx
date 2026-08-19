@@ -65,7 +65,12 @@ export default function Rules({ code }: { code: string }) {
                 ? `Draft picks are on a ${cfg.draft_pick_seconds}-second clock — miss it and the room picks for you.`
                 : 'The draft has no pick clock; the room waits for each manager.'}
             </li>
-            <li>Season year drawn at random from cached seasons ({cfg.eligible_year_min}+).</li>
+            <li>
+              Season year drawn at random from {cfg.eligible_year_min}–
+              {cfg.eligible_year_max} — nobody picks it. The season loads when
+              it is drawn, so the first league to land on a year waits about a
+              minute and a half; everyone after that gets it at once.
+            </li>
           </ul>
         </div>
 

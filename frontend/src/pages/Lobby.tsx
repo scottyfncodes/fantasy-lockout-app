@@ -248,7 +248,7 @@ export default function Lobby({ code }: { code: string }) {
             title={view.season?.ready ? undefined : 'the season is still loading'}
             onClick={() => send({ type: 'start_minigame' })}
           >
-            {view.season?.ready ? 'Start the Speed Round' : 'Waiting for the season…'}
+            {view.season?.ready ? 'Start the Green Light' : 'Waiting for the season…'}
           </button>
         </div>
       ) : null}
