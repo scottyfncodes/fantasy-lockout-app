@@ -82,11 +82,17 @@ if [ -n "$missing" ]; then
             echo "WARNING: set RETRO_SOURCE=synthetic to come up without the network."
         fi
         python - <<'PRUNE'
-import os
+# Pruned against the *league config* range, never RETRO_SEASONS. Those two
+# mean different things: RETRO_SEASONS is only which years to warm up front,
+# while eligible_year_min/max is which years a league may draw. Pruning to the
+# warm-up list meant every year cached on demand — that is, every year anyone
+# actually played — was struck off the draw on the next restart, until only
+# the warmed pair was left.
 from app import db
-from app.pipeline.build import parse_years, prune_to
+from app.config import LeagueConfig
+from app.pipeline.build import prune_to
 with db.closing_conn() as conn:
-    for year, reason in prune_to(conn, parse_years(os.environ["RETRO_SEASONS"])):
+    for year, reason in prune_to(conn, LeagueConfig.load().eligible_years()):
         print(f"[{year}] dropped from the draw — {reason}")
 PRUNE
         rm -f "$RETRO_WARMUP_MARKER"
@@ -95,11 +101,17 @@ PRUNE
 else
     echo "all requested seasons already cached in ${RETRO_REPLAY_DB}"
     python - <<'PRUNE'
-import os
+# Pruned against the *league config* range, never RETRO_SEASONS. Those two
+# mean different things: RETRO_SEASONS is only which years to warm up front,
+# while eligible_year_min/max is which years a league may draw. Pruning to the
+# warm-up list meant every year cached on demand — that is, every year anyone
+# actually played — was struck off the draw on the next restart, until only
+# the warmed pair was left.
 from app import db
-from app.pipeline.build import parse_years, prune_to
+from app.config import LeagueConfig
+from app.pipeline.build import prune_to
 with db.closing_conn() as conn:
-    for year, reason in prune_to(conn, parse_years(os.environ["RETRO_SEASONS"])):
+    for year, reason in prune_to(conn, LeagueConfig.load().eligible_years()):
         print(f"[{year}] dropped from the draw — {reason}")
 PRUNE
 fi

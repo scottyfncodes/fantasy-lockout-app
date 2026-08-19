@@ -41,7 +41,7 @@
   "freeze_adds_final_weeks": 0,
   "eligible_year_min": 2001,
   "eligible_year_max": 2017,
-  "_eligible_year_max_note": "The span the injury export covers. A season outside it would replay without injuries, so the draw is held to years that have them. null => last completed season (current year - 1).",
+  "_eligible_year_note": "2001-2017 is the span the injury export actually covers: 344 to 714 IL stints a year, every year, no gaps. It reaches back to 1999 on paper but thins out to 41 stints in 1999 and 16 in 2000, which would replay as a season nobody ever got hurt in - hence the 2001 floor. All 17 years are drawable; RETRO_SEASONS only decides which are warmed up front. eligible_year_max null => last completed season (current year - 1).",
   "excluded_years": [
     2020
   ],
