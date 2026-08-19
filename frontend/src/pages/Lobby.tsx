@@ -41,7 +41,11 @@ export default function Lobby({ code }: { code: string }) {
       phaseRef.current = phase;
       reload();
     }
-  }, [phase, reload]);
+    // Whatever told us the phase — the socket, a refetch, or just loading this
+    // page late — draft means the draft room. Relying on the one broadcast
+    // meant a manager who reloaded at the wrong moment sat on a dead lobby.
+    if (phase === 'draft') navigate(`/l/${code}/draft`);
+  }, [phase, reload, navigate, code]);
 
   // The season is fetched by a background thread with no way to push, and the
   // page prefers whatever the socket last said — so a plain refetch would be

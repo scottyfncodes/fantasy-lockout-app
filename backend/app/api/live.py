@@ -103,7 +103,14 @@ async def lobby_socket(
             elif kind == "open_draft" and is_commissioner:
                 # The order has been seen and nobody is asking for another go.
                 hub.clear_redo_votes(league_id)
-                await _finish_order(league_id)
+                try:
+                    await _finish_order(league_id)
+                except Exception as exc:  # noqa: BLE001 - the room must hear it
+                    logging.exception("opening the draft failed for league %s", league_id)
+                    await hub.room(league_id, "lobby").broadcast({
+                        "type": "lobby_error",
+                        "message": f"the draft room could not be opened: {exc}",
+                    })
 
             elif kind == "vote_redo" and team:
                 # A redo needs both a majority of managers and the
@@ -295,18 +302,23 @@ def _persist_minigame(league_id: str) -> list[dict[str, Any]]:
 
 async def _finish_order(league_id: str) -> None:
     """Draft order is set — build the board and open the draft room."""
-    def prepare() -> dict[str, Any]:
+    def prepare() -> tuple[dict[str, Any], dict[str, Any]]:
         with db.closing_conn() as conn:
             league = leagues_svc.require_league(conn, league_id)
             with db.transaction(conn):
                 draft_svc.initialize(conn, league)
                 leagues_svc.set_phase(conn, league_id, "draft")
             league = leagues_svc.require_league(conn, league_id)
-            return draft_svc.state(conn, league)
+            return draft_svc.state(conn, league), leagues_svc.lobby_state(conn, league)
 
-    state = await run_in_threadpool(prepare)
+    state, lobby = await run_in_threadpool(prepare)
     hub.clear_round(league_id)
     await hub.room(league_id, "draft").broadcast(state)
+    # Everyone is still sitting on the lobby socket looking at the order, so
+    # this is the only message that moves them. Pushing the board to the draft
+    # room alone opened the draft for a room nobody had walked into yet.
+    await hub.room(league_id, "lobby").broadcast({"type": "lobby_state", **lobby})
+    await hub.room(league_id, "lobby").broadcast({"type": "phase", "phase": "draft"})
     hub.spawn(f"draftbot:{league_id}", _bot_pick_loop(league_id))
 
 

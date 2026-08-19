@@ -150,6 +150,46 @@ def test_the_green_light_sets_the_draft_order(client):
     assert all(t["draft_slot"] for t in state["teams"])
 
 
+
+def test_opening_the_draft_tells_the_lobby(client):
+    """The lobby is where everyone is standing when the button is pressed.
+
+    Opening the draft used to push the board to the draft room and nothing to
+    the lobby, so the phase changed under a room that was never told: the
+    commissioner pressed the button and the page sat there.
+    """
+    league = make_league(client, {**TINY_ROSTER, "draft_order_mode": "randomizer"})
+    code = league["code"]
+    manager = join(client, code, "Watchers")
+    client.post(f"/api/leagues/{code}/start",
+                headers={"X-Commissioner-Token": league["commissioner_token"]})
+
+    url = f"/ws/{code}/lobby?token={manager['manager_token']}&commish={league['commissioner_token']}"
+    with client.websocket_connect(url) as ws:
+        ws.receive_json()
+        ws.send_json({"type": "start_minigame"})
+        for _ in range(50):
+            if ws.receive_json()["type"] == "draft_order":
+                ws.send_json({"type": "open_draft"})
+                break
+        else:  # pragma: no cover - the order always arrives
+            raise AssertionError("no draft order")
+
+        # A sentinel with a reply of its own, so a lobby that hears nothing
+        # about the draft fails here instead of blocking on receive forever.
+        # The socket handles messages in order, so anything open_draft has to
+        # say is already queued ahead of this.
+        ws.send_json({"type": "vote_redo", "value": True})
+        seen = []
+        for _ in range(20):
+            msg = ws.receive_json()
+            if msg["type"] == "redo_vote":
+                break
+            if msg["type"] in ("phase", "lobby_state"):
+                seen.append((msg["type"], msg["phase"]))
+        assert ("phase", "draft") in seen, "the lobby never heard the draft open"
+        assert ("lobby_state", "draft") in seen, "the lobby state that came with it was stale"
+
 def test_live_draft_runs_to_completion(client):
     league = make_league(client, {**TINY_ROSTER, "draft_order_mode": "randomizer"})
     code = league["code"]

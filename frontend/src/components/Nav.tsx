@@ -15,7 +15,10 @@ const TABS = [
 
 export default function Nav({ code }: { code: string }) {
   const { path } = useRouter();
-  const { data } = useApi<any>(`/api/leagues/${code}`, code);
+  // Refetch on every navigation. The header mounts once and outlives every
+  // page, so a single fetch left it reading "season pending" for the rest of
+  // the visit — including on the draft page for a season already drawn.
+  const { data } = useApi<any>(`/api/leagues/${code}`, code, [path]);
   const isCommissioner = !!tokens.commissioner(code);
   const base = `/l/${code}`;
 
