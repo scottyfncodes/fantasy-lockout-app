@@ -1,0 +1,37 @@
+name: Pages
+
+# The app itself runs on Render (it needs a server for the draft room, the
+# nightly replay and the league database). The GitHub Pages address is only a
+# forwarder to it, so a shared github.io link still lands in the app.
+on:
+  push:
+    branches: [main]
+    paths: [pages/**, frontend/public/**, .github/workflows/pages.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp pages/index.html _site/index.html
+          cp pages/index.html _site/404.html
+          cp frontend/public/icon.svg frontend/public/apple-touch-icon.png _site/
+      - uses: actions/upload-pages-artifact@v3
+      - id: deployment
+        uses: actions/deploy-pages@v4
